@@ -23,6 +23,5 @@
 - Протокол: Protobuf  
 - БД: SQLite  
 - Файлы/блоки: `std::filesystem`  
-- Хэш/целостность: SHA-256 (OpenSSL)  
 - CLI: CLI11  
 - Тесты: gTest
