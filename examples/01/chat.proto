@@ -1,0 +1,16 @@
+syntax = "proto3";
+package demo;
+
+service Broadcast {
+  // Клиент подписывается и получает поток сообщений от сервера
+  rpc Subscribe(SubscribeRequest) returns (stream ServerMessage);
+}
+
+message SubscribeRequest {
+  string client_id = 1;
+}
+
+message ServerMessage {
+  string text = 1;
+  uint64 seq = 2;   // просто номер сообщения, чтобы было видно порядок
+}
