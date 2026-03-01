@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace pear::storage {
+namespace p2p::storage {
 
 namespace fs = std::filesystem;
 
@@ -41,6 +41,6 @@ public:
     void create_all_empty_files(const std::vector<std::string>& names_to_meta_files);
 };
 
-}  // namespace pear::storage
+}  // namespace p2p::storage
 
 #endif  // PEAR_FILESYSTEM_WORKSPACE_HPP

@@ -3,7 +3,7 @@
 #include <fstream>
 #include <stdexcept>
 
-namespace pear::storage {
+namespace p2p::storage {
 
 Workspace::Workspace(fs::path root)
     : m_root(std::move(root)),
@@ -93,4 +93,4 @@ void Workspace::create_all_empty_files(const std::vector<std::string>& names_to_
     }
 }
 
-}  // namespace pear::storage
+}  // namespace p2p::storage
