@@ -28,7 +28,7 @@ struct TempDir {
 TEST(Workspace, InitCreatesPeerStructure) {
     TempDir td;
 
-    auto ws = p2p::filesystem::Workspace::init(td.dir);
+    auto ws = p2p::storage::Workspace::init(td.dir);
 
     EXPECT_TRUE(fs::exists(ws.get_peer_dir()));
     EXPECT_TRUE(fs::is_directory(ws.get_peer_dir()));
@@ -43,14 +43,14 @@ TEST(Workspace, InitCreatesPeerStructure) {
 TEST(Workspace, InitFailsInsideExistingWorkspace) {
     TempDir td;
 
-    (void)p2p::filesystem::Workspace::init(td.dir);
+    (void)p2p::storage::Workspace::init(td.dir);
 
     // пытаемся init в подпапке — должно упасть (запрещаем nested)
     fs::path sub = td.dir / "sub";
     fs::create_directories(sub);
 
     EXPECT_THROW(
-        (void)p2p::filesystem::Workspace::init(sub),
+        (void)p2p::storage::Workspace::init(sub),
         std::runtime_error
     );
 }
@@ -58,12 +58,12 @@ TEST(Workspace, InitFailsInsideExistingWorkspace) {
 TEST(Workspace, DiscoverFindsWorkspaceFromNestedDir) {
     TempDir td;
 
-    (void)p2p::filesystem::Workspace::init(td.dir);
+    (void)p2p::storage::Workspace::init(td.dir);
 
     fs::path nested = td.dir / "a" / "b" / "c";
     fs::create_directories(nested);
 
-    auto ws = p2p::filesystem::Workspace::discover(nested);
+    auto ws = p2p::storage::Workspace::discover(nested);
 
     EXPECT_EQ(ws.get_root(), td.dir);
     EXPECT_EQ(ws.get_peer_dir(), td.dir / ".peer");
@@ -76,7 +76,7 @@ TEST(Workspace, DiscoverFailsWhenNoWorkspace) {
 
     // workspace не создавали
     EXPECT_THROW(
-        (void)p2p::filesystem::Workspace::discover(td.dir),
+        (void)p2p::storage::Workspace::discover(td.dir),
         std::runtime_error
     );
 }
@@ -84,7 +84,7 @@ TEST(Workspace, DiscoverFailsWhenNoWorkspace) {
 TEST(Workspace, CreateEmptyFilesCreatesReadOnlyEmptyPlaceholders) {
     TempDir td;
 
-    auto ws = p2p::filesystem::Workspace::init(td.dir);
+    auto ws = p2p::storage::Workspace::init(td.dir);
 
     std::vector<std::string> names = {"alpha.txt", "beta.bin", "gamma"};
     ws.create_all_empty_files(names);
@@ -104,7 +104,7 @@ TEST(Workspace, CreateEmptyFilesCreatesReadOnlyEmptyPlaceholders) {
 TEST(Workspace, CreateObjectFileCopiesToObjDir) {
     TempDir td;
 
-    auto ws = p2p::filesystem::Workspace::init(td.dir);
+    auto ws = p2p::storage::Workspace::init(td.dir);
 
     // создаём локальный файл в root
     fs::path local = td.dir / "file1.txt";
@@ -136,7 +136,7 @@ TEST(Workspace, CreateObjectFileCopiesToObjDir) {
 TEST(Workspace, CreateObjectFileThrowsOnDuplicateId) {
     TempDir td;
 
-    auto ws = p2p::filesystem::Workspace::init(td.dir);
+    auto ws = p2p::storage::Workspace::init(td.dir);
 
     fs::path local = td.dir / "dup.txt";
     {
@@ -157,7 +157,7 @@ TEST(Workspace, CreateObjectFileThrowsOnDuplicateId) {
 TEST(Workspace, DeleteObjectFileRemovesObject) {
     TempDir td;
 
-    auto ws = p2p::filesystem::Workspace::init(td.dir);
+    auto ws = p2p::storage::Workspace::init(td.dir);
 
     fs::path local = td.dir / "to_delete.txt";
     {
