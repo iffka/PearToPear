@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace p2p::storage {
+namespace pear::storage {
 
 namespace fs = std::filesystem;
 
@@ -31,7 +31,6 @@ public:
     const fs::path& get_obj_dir() const;
     const fs::path& get_meta_dir() const;
 
-    static std::optional<fs::path> find_peer_root(const fs::path& start_dir);
     static Workspace init(const fs::path& root = fs::current_path());
     static Workspace discover(const fs::path& start_dir = fs::current_path());
 
@@ -41,6 +40,6 @@ public:
     void create_all_empty_files(const std::vector<std::string>& names_to_meta_files);
 };
 
-}  // namespace p2p::storage
+}  // namespace pear::storage
 
 #endif  // PEAR_FILESYSTEM_WORKSPACE_HPP

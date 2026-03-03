@@ -3,7 +3,22 @@
 #include <fstream>
 #include <stdexcept>
 
-namespace p2p::storage {
+namespace {
+namespace fs = std::filesystem;
+std::optional<fs::path> find_peer_root(const fs::path& start_dir) {
+    fs::path current_dir = start_dir;
+    while (!fs::exists(current_dir / ".peer")) {
+        if (current_dir == current_dir.parent_path()) {
+            return std::nullopt;
+        }
+        current_dir = current_dir.parent_path();
+    }
+    return current_dir;
+}
+
+} // anonymous namespace
+
+namespace pear::storage {
 
 Workspace::Workspace(fs::path root)
     : m_root(std::move(root)),
@@ -41,17 +56,6 @@ const fs::path& Workspace::get_obj_dir() const {
 }
 const fs::path& Workspace::get_meta_dir() const {
     return m_meta_dir;
-}
-
-std::optional<fs::path> Workspace::find_peer_root(const fs::path& start_dir) {
-    fs::path current_dir = start_dir;
-    while (!fs::exists(current_dir / ".peer")) {
-        if (current_dir == current_dir.parent_path()) {
-            return std::nullopt;
-        }
-        current_dir = current_dir.parent_path();
-    }
-    return current_dir;
 }
 
 Workspace Workspace::init(const fs::path& root) {
@@ -93,4 +97,4 @@ void Workspace::create_all_empty_files(const std::vector<std::string>& names_to_
     }
 }
 
-}  // namespace p2p::storage
+}  // namespace pear::storage
