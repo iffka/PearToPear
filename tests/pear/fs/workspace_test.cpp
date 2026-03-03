@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "workspace.hpp"
+#include <pear/fs/workspace.hpp>
 
 namespace fs = std::filesystem;
 

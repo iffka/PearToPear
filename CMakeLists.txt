@@ -12,7 +12,7 @@ add_library(pear_fs
 )
 
 target_include_directories(pear_fs PUBLIC
-    src/pear/fs
+    include
 )
 
 # ---- тесты ----
