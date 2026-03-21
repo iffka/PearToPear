@@ -1,0 +1,86 @@
+#include <filesystem>
+#include <iostream>
+#include <string>
+#include <vector>
+
+#include <CLI/CLI.hpp>
+
+#include <pear/cli/commands.hpp>
+
+int main(int argc, char** argv) {
+    CLI::App app{"pear"};
+
+    std::filesystem::path workspace_path = ".";
+    CLI::App* init = app.add_subcommand("init", "Initialize a new Pear workspace");
+    init->add_option("path", workspace_path, "Workspace directory");
+
+    CLI::App* deinit = app.add_subcommand("deinit", "Remove the local Pear workspace");
+
+    std::string repo_id;
+    CLI::App* connect = app.add_subcommand("connect", "Connect to an existing Pear workspace");
+    connect->add_option("repo_id", repo_id, "Pear workspace id")->required();
+
+    CLI::App* disconnect = app.add_subcommand("disconnect", "Disconnect from the current Pear workspace");
+
+    bool add_all = false;
+    std::vector<std::filesystem::path> add_paths;
+    CLI::App* add = app.add_subcommand("add", "Stage workspace changes");
+    auto* add_paths_opt = add->add_option("paths", add_paths, "Paths to stage");
+    auto* add_all_opt = add->add_flag("--all", add_all, "Stage all workspace changes");
+    add_paths_opt->excludes(add_all_opt);
+    add_all_opt->excludes(add_paths_opt);
+
+    bool unstage_all = false;
+    std::vector<std::filesystem::path> unstage_paths;
+    CLI::App* unstage = app.add_subcommand("unstage", "Remove staged changes");
+    auto* unstage_paths_opt = unstage->add_option("paths", unstage_paths, "Paths to unstage");
+    auto* unstage_all_opt = unstage->add_flag("--all", unstage_all, "Remove all staged changes");
+    unstage_paths_opt->excludes(unstage_all_opt);
+    unstage_all_opt->excludes(unstage_paths_opt);
+
+    CLI::App* update = app.add_subcommand("update", "Update Pear workspace metadata");
+
+    CLI::App* ls = app.add_subcommand("ls", "List files in the Pear workspace");
+
+    CLI::App* push = app.add_subcommand("push", "Push staged changes to the Pear workspace");
+
+    std::vector<std::string> targets;
+    CLI::App* pull = app.add_subcommand("pull", "Download files from the Pear workspace");
+    pull->add_option("targets", targets, "Files to download")->required();
+
+    CLI::App* status = app.add_subcommand("status", "Show workspace changes");
+
+    init->callback([&]() { pear::cli::run_init(workspace_path); });
+    deinit->callback([&]() { pear::cli::run_deinit(); });
+    connect->callback([&]() { pear::cli::run_connect(repo_id); });
+    disconnect->callback([&]() { pear::cli::run_disconnect(); });
+    add->callback([&]() {
+        if (!add_all && add_paths.empty()) {
+            throw CLI::ValidationError("add", "Specify paths or use --all");
+        }
+        pear::cli::run_add(add_paths, add_all);
+    });
+    unstage->callback([&]() {
+        if (!unstage_all && unstage_paths.empty()) {
+            throw CLI::ValidationError("unstage", "Specify paths or use --all");
+        }
+        pear::cli::run_unstage(unstage_paths, unstage_all);
+    });
+    update->callback([&](){pear::cli::run_update(); });
+    ls->callback([&](){pear::cli::run_ls(); });
+    push->callback([&](){pear::cli::run_push(); });
+    pull->callback([&](){pear::cli::run_pull(targets); });
+    status->callback([&](){pear::cli::run_status(); });
+
+    try {
+        app.require_subcommand(1);
+        CLI11_PARSE(app, argc, argv);
+    } catch (const CLI::ParseError& e) {
+        return app.exit(e);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << '\n';
+        return 1;
+    }
+
+    return 0;
+}

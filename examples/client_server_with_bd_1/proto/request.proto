@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package peartopeer;
+
+message ClientRequest {
+  string text = 1;
+}
+
+message ServerFeedback {
+  string message = 1;
+  bool success = 2;
+}
+
+message FileRequest {
+  string filename = 1;
+}
+
+message FileResponse {
+  bytes content = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+service P2PService {
+  rpc SendRequest (ClientRequest) returns (ServerFeedback);
+  rpc DownloadFile (FileRequest) returns (FileResponse);
+}
