@@ -1,218 +1,334 @@
 #include <pear/demon/demon.hpp>
+#include <pear/fs/workspace.hpp>
 
-#include <chrono>
+#include <cerrno>
 #include <csignal>
+#include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <optional>
 #include <stdexcept>
 #include <string>
-#include <thread>
-
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
+#include <climits>
+#include <linux/close_range.h>
 #include <unistd.h>
-
-namespace {
-
-std::filesystem::path get_pid_file(const std::filesystem::path& workspace_root) {
-    return workspace_root / ".peer" / "meta" / "demon.pid";
-}
-
-void send_status(int fd, const std::string& msg) {
-    std::string line = msg + '\n';
-    write(fd, line.c_str(), line.size());
-}
-
-std::optional<pid_t> find_pid(const std::filesystem::path& workspace_root) {
-    const std::filesystem::path pid_file = get_pid_file(workspace_root);
-
-    if (!std::filesystem::exists(pid_file)) {
-        return std::nullopt;
-    }
-
-    std::ifstream in(pid_file);
-    if (!in) {
-        return std::nullopt;
-    }
-
-    pid_t pid;
-    in >> pid;
-
-    if (!in || pid <= 0) {
-        return std::nullopt;
-    }
-
-    if (::kill(pid, 0) == 0) {
-        return pid;
-    }
-
-    std::filesystem::remove(pid_file);
-    return std::nullopt;
-}
-
-void write_pid_file(const std::filesystem::path& workspace_root, pid_t pid) {
-    const std::filesystem::path pid_file = get_pid_file(workspace_root);
-
-    std::ofstream out(pid_file, std::ios::trunc);
-    if (!out) {
-        throw std::runtime_error("failed to open demon.pid");
-    }
-
-    out << pid;
-    if (!out) {
-        throw std::runtime_error("failed to write demon.pid");
-    }
-}
-
-void remove_pid_file(const std::filesystem::path& workspace_root) {
-    std::filesystem::remove(get_pid_file(workspace_root));
-}
-
-void run(const std::filesystem::path& workspace_root,
-         const std::string& repo_id,
-         bool is_main,
-         int write_fd) {
-    send_status(write_fd, "child: spawned");
-    send_status(write_fd, "child: workspace_root = " + workspace_root.string());
-    send_status(write_fd, "child: repo_id = " + repo_id);
-    send_status(write_fd, std::string("child: is_main = ") + (is_main ? "true" : "false"));
-
-    if (is_main) {
-        send_status(write_fd, "child: would start main server");
-    }
-
-    send_status(write_fd, "child: would start file server");
-    send_status(write_fd, "child: servers are considered ready");
-
-    if (setsid() < 0) {
-        send_status(write_fd, "fail: setsid failed");
-        close(write_fd);
-        _exit(1);
-    }
-
-    send_status(write_fd, "child: setsid ok");
-
-    try {
-        write_pid_file(workspace_root, getpid());
-    } catch (const std::exception& e) {
-        send_status(write_fd, std::string("fail: ") + e.what());
-        close(write_fd);
-        _exit(1);
-    }
-
-    send_status(write_fd, "child: pid file written");
-    send_status(write_fd, "ok");
-
-    close(write_fd);
-
-    // #todo тут потом будет реальная жизнь демона с поднятыми серверами
-    while (true) {
-        sleep(1);
-    }
-}
-
-} // namespace
+#include <fstream>
 
 namespace pear::demon {
 
-void spawn(const std::filesystem::path& workspace_root,
-           const std::string& repo_id,
-           bool is_main) {
-    if (is_alive(workspace_root)) {
-        throw std::runtime_error("Already connected");
-    }
+namespace {
 
-    int pipefd[2];
-    if (pipe(pipefd) < 0) {
-        throw std::runtime_error("pipe failed");
-    }
+std::runtime_error make_errno_error(const std::string& message) {
+    return std::runtime_error(message + ": " + std::strerror(errno));
+}
 
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipefd[0]);
-        close(pipefd[1]);
-        throw std::runtime_error("fork failed");
-    }
+void write_all(int fd, const char* data, std::size_t size) {
+    std::size_t written = 0;
 
-    if (pid == 0) {
-        close(pipefd[0]);
-        run(workspace_root, repo_id, is_main, pipefd[1]);
-        _exit(0);
-    }
+    while (written < size) {
+        ssize_t result = ::write(fd, data + written, size - written);
 
-    close(pipefd[1]);
-
-    std::string buffer;
-
-    while (true) {
-        char temp[256];
-        ssize_t n = read(pipefd[0], temp, sizeof(temp));
-
-        if (n < 0) {
-            close(pipefd[0]);
-            throw std::runtime_error("read failed");
+        if (result == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw make_errno_error("failed to write to status pipe");
         }
 
-        if (n == 0) {
+        written += static_cast<std::size_t>(result);
+    }
+}
+
+void send_ok(int status_fd) {
+    static constexpr char message[] = "ok\n";
+    write_all(status_fd, message, sizeof(message) - 1);
+}
+
+void send_fail(int status_fd, const std::string& reason) {
+    const std::string message = "fail: " + reason + "\n";
+    write_all(status_fd, message.c_str(), message.size());
+}
+
+std::string read_status_message(int fd) {
+    std::string message;
+    char ch = '\0';
+    while (true) {
+        ssize_t result = ::read(fd, &ch, 1);
+        if (result == 0) {
             break;
         }
-
-        buffer.append(temp, n);
-
-        std::size_t pos = 0;
-        while (true) {
-            std::size_t newline = buffer.find('\n', pos);
-            if (newline == std::string::npos) {
-                buffer.erase(0, pos);
-                break;
+        if (result == -1) {
+            if (errno == EINTR) {
+                continue;
             }
-
-            std::string line = buffer.substr(pos, newline - pos);
-            pos = newline + 1;
-
-            std::cout << line << '\n';
-
-            if (line == "ok") {
-                close(pipefd[0]);
-                return;
-            }
-
-            if (line.rfind("fail:", 0) == 0) {
-                close(pipefd[0]);
-                throw std::runtime_error(line.substr(6));
-            }
+            throw make_errno_error("failed to read demon status");
         }
+        if (ch == '\n') {
+            break;
+        }
+        message.push_back(ch);
+    }
+    return message;
+}
+
+void wait_child(pid_t pid) {
+    while (true) {
+        int status = 0;
+        pid_t result = ::waitpid(pid, &status, 0);
+
+        if (result == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw make_errno_error("waitpid failed");
+        }
+
+        return;
+    }
+}
+
+void redirect_fd_or_close(int from_fd, int to_fd, const std::string& message){
+    if (::dup2(from_fd, to_fd) == -1) {
+        int saved_errno = errno;
+        ::close(from_fd);
+        errno = saved_errno;
+        throw make_errno_error(message);
+    }
+}
+
+void redirect_stdio_to_devnull() {
+    // привязываем stdin stdout stderr к пустому специальному файлику в линуксе
+    int null_fd = ::open("/dev/null", O_RDWR);
+    if (null_fd == -1) {
+        throw make_errno_error("failed to open /dev/null");
     }
 
-    close(pipefd[0]);
-    throw std::runtime_error("demon start failed");
+    redirect_fd_or_close(null_fd, STDIN_FILENO, "failed to redirect stdin");
+    redirect_fd_or_close(null_fd, STDOUT_FILENO, "failed to redirect stdout");
+    redirect_fd_or_close(null_fd, STDERR_FILENO, "failed to redirect stderr");
+
+    if (null_fd != STDIN_FILENO && null_fd != STDOUT_FILENO && null_fd != STDERR_FILENO) {
+        ::close(null_fd);
+    }
+}
+
+void close_all_fds_except(unsigned int preserved_fd) {
+    // закрываем все дескрипторы кроме статусного
+    // close_range - к сожалению есть зависимость от линукса((( 
+    if (preserved_fd > 0) {
+        if (::close_range(0, preserved_fd - 1, 0) == -1) {
+            throw make_errno_error("close_range failed");
+        }
+    }
+    if (preserved_fd < UINT_MAX) {
+        if (::close_range(preserved_fd + 1, UINT_MAX, 0) == -1) {
+            throw make_errno_error("close_range failed");
+        }
+    }
+}
+
+void write_pid_file(const std::filesystem::path& pid_file, pid_t pid) {
+    int fd = ::open(pid_file.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
+    if (fd == -1) {
+        throw make_errno_error("failed to create pid file");
+    }
+
+    try {
+        const std::string pid_text = std::to_string(pid) + "\n";
+        write_all(fd, pid_text.c_str(), pid_text.size());
+        ::close(fd);
+    } catch (...) {
+        ::close(fd);
+        ::unlink(pid_file.c_str());
+        throw;
+    }
+}
+
+[[noreturn]] void daemon_child_main(
+    const std::filesystem::path& workspace_root,
+    const std::string& repo_id,
+    bool is_main,
+    int status_fd
+) {
+    try {
+        if (::signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+            throw make_errno_error("failed to ignore SIGPIPE");
+        }
+
+        if (::setsid() == -1) {
+            throw make_errno_error("setsid failed");
+        }
+        
+        pid_t second_pid = ::fork();
+        if (second_pid == -1) {
+            throw make_errno_error("second fork failed");
+        }
+
+        if (second_pid > 0) {
+            ::_exit(EXIT_SUCCESS);
+        }
+
+        ::umask(0);
+
+        if (::chdir("/") == -1) {
+            throw make_errno_error("chdir failed");
+        }
+
+        // status_fd пока держим открытым, чтобы сообщить parent о результате старта.
+        close_all_fds_except(status_fd);
+        redirect_stdio_to_devnull();
+
+        std::filesystem::path pid_file = pear::storage::Workspace::discover(workspace_root).get_meta_dir() / "demon.pid";
+
+        // тут поднимаем сервер для файлов
+
+        write_pid_file(pid_file, ::getpid());
+        send_ok(status_fd);
+        ::close(status_fd);
+
+        // После успешного старта сюда должен перейти основной цикл демона.
+        // пока что тупая заглушка
+        pause();
+        ::_exit(EXIT_SUCCESS);
+    } catch (const std::exception& exception) {
+        try {
+            send_fail(status_fd, exception.what());
+        } catch (...) {
+        }
+
+        ::close(status_fd);
+        ::_exit(EXIT_FAILURE);
+    } catch (...) {
+        try {
+            send_fail(status_fd, "unknown error");
+        } catch (...) {
+        }
+
+        ::close(status_fd);
+        ::_exit(EXIT_FAILURE);
+    }
+}
+
+pid_t read_pid_file(const std::filesystem::path& pid_file) {
+    std::ifstream input(pid_file);
+    if (!input.is_open()) {
+        throw std::runtime_error("failed to open pid file");
+    }
+
+    long long raw_pid = 0;
+    input >> raw_pid;
+
+    if (!input || raw_pid <= 0) {
+        throw std::runtime_error("pid file is corrupted");
+    }
+
+    return static_cast<pid_t>(raw_pid);
+}
+
+bool is_process_alive(pid_t pid) {
+    if (pid <= 0) {
+        return false;
+    }
+
+    return ::kill(pid, 0) == 0;
+}
+
+}  // namespace
+
+void spawn(
+    const std::filesystem::path& workspace_root,
+    const std::string& repo_id,
+    bool is_main
+) {
+    if (is_alive(workspace_root)) {
+        throw std::runtime_error("demon is already alive");
+    }
+
+    int pipe_fds[2];
+    if (::pipe(pipe_fds) == -1) {
+        throw make_errno_error("failed to create pipe");
+    }
+
+    pid_t first_pid = ::fork();
+    if (first_pid == -1) {
+        ::close(pipe_fds[0]);
+        ::close(pipe_fds[1]);
+        throw make_errno_error("first fork failed");
+    }
+
+    if (first_pid == 0) {
+        ::close(pipe_fds[0]);
+        daemon_child_main(workspace_root, repo_id, is_main, pipe_fds[1]);
+    }
+
+    ::close(pipe_fds[1]);
+
+    std::string status_message;
+    try {
+        status_message = read_status_message(pipe_fds[0]);
+        ::close(pipe_fds[0]);
+        wait_child(first_pid);
+    } catch (...) {
+        ::close(pipe_fds[0]);
+        wait_child(first_pid);
+        throw;
+    }
+
+    if (status_message == "ok") {
+        return;
+    }
+
+    if (status_message.rfind("fail: ", 0) == 0) {
+        throw std::runtime_error(status_message.substr(6));
+    }
+
+    if (status_message.empty()) {
+        throw std::runtime_error("demon terminated before reporting startup status");
+    }
+
+    throw std::runtime_error("unexpected demon status: " + status_message);
+}
+
+
+bool is_alive(const std::filesystem::path& workspace_root) {
+    std::filesystem::path pid_file = pear::storage::Workspace::discover(workspace_root).get_meta_dir() / "demon.pid";
+
+    if (!std::filesystem::exists(pid_file)) {
+        return false;
+    }
+
+    pid_t pid = 0;
+
+    try {
+        pid = read_pid_file(pid_file);
+    } catch (...) {
+        std::filesystem::remove(pid_file);
+        return false;
+    }
+
+    if (is_process_alive(pid)) {
+        return true;
+    }
+
+    std::filesystem::remove(pid_file);
+    return false;
 }
 
 void kill(const std::filesystem::path& workspace_root) {
-    std::optional<pid_t> pid = find_pid(workspace_root);
+    std::filesystem::path pid_file =
+        pear::storage::Workspace::discover(workspace_root).get_meta_dir() / "demon.pid";
 
-    if (!pid.has_value()) {
-        throw std::runtime_error("Not connected");
+    if (!is_alive(workspace_root)) {
+        throw std::runtime_error("demon is not alive");
     }
 
-    if (::kill(*pid, SIGTERM) < 0) {
-        throw std::runtime_error("failed to send SIGTERM");
-    }
+    pid_t pid = read_pid_file(pid_file);
 
-    for (int i = 0; i < 20; ++i) {
-        if (::kill(*pid, 0) != 0) {
-            remove_pid_file(workspace_root);
-            return;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (::kill(pid, SIGTERM) == -1) {
+        throw make_errno_error("failed to send SIGTERM to demon");
     }
-
-    throw std::runtime_error("failed to stop demon");
 }
 
-bool is_alive(const std::filesystem::path& workspace_root) {
-    return find_pid(workspace_root).has_value();
-}
-
-} // namespace pear::demon
+}  // namespace pear::demon
