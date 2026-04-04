@@ -97,4 +97,19 @@ void Workspace::create_all_empty_files(const std::vector<std::string>& names_to_
     }
 }
 
+std::vector<std::string> Workspace::get_list_object_ids() const {
+    std::vector<std::string> object_ids;
+    for (const auto& entry : fs::directory_iterator(m_obj_dir)) {
+        if (entry.is_regular_file()) {
+            object_ids.push_back(entry.path().filename().string());
+        }
+    }
+    return object_ids;
+}
+
+bool Workspace::has_objectfile(const std::string& id) const {
+    fs::path object_path = m_obj_dir / id;
+    return fs::is_regular_file(object_path);
+}
+
 }  // namespace pear::storage

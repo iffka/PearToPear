@@ -38,6 +38,10 @@ public:
     void delete_objectfile(const std::string& id);
 
     void create_all_empty_files(const std::vector<std::string>& names_to_meta_files);
+
+    std::vector<std::string> get_list_object_ids() const;
+
+    bool has_objectfile(const std::string& id) const;
 };
 
 }  // namespace pear::storage
