@@ -10,7 +10,7 @@ namespace pear::cli {
 void run_init(const std::filesystem::path& workspace_path);
 void run_deinit();
 
-void run_connect(const std::string& repo_id);
+void run_connect(const std::string& repo_id, bool is_main);
 void run_disconnect();
 
 void run_add(const std::vector<std::filesystem::path>& paths, bool all);
