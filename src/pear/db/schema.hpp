@@ -1,18 +1,16 @@
-#ifndef P2P_DB_SCHEMA_HPP
-#define P2P_DB_SCHEMA_HPP
-
-#include <string>
+#ifndef PEAR_DB_SCHEMA_HPP
+#define PEAR_DB_SCHEMA_HPP
 
 #include "sqlite.hpp"
 
-namespace p2p::db {
+// Схема БД MVP — таблицы WAL, files, devices, local_config.
+// Вызывается один раз из конструктора SqliteDatabase.
 
-constexpr std::string_view kSchemaVersionTable = "schema_version";
+namespace pear::db {
 
-std::string schema_sql();
-std::string bootstrap_sql();
+// Создаёт все нужные таблицы (идемпотентно).
 void ensure_schema(Connection& c);
 
-}  // namespace p2p::db
+}  // namespace pear::db
 
-#endif  // P2P_DB_SCHEMA_HPP
+#endif  // PEAR_DB_SCHEMA_HPP

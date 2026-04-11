@@ -1,47 +1,62 @@
 #include "schema.hpp"
 
-namespace p2p::db {
+namespace pear::db {
 
-std::string bootstrap_sql() {
-    return R"sql(
-CREATE TABLE IF NOT EXISTS schema_version(
-  version INTEGER NOT NULL
+namespace {
+
+// Схема БД на весь MVP.
+//
+// - devices:      зарегистрированные устройства сети (адрес уникален,
+//                 device_id auto-assign на стороне ГУ).
+// - files:        полная история версий метаданных файлов
+//                 (ключ — пара (file_id, version)).
+// - wal:          упорядоченный журнал операций. seq_id назначается ГУ,
+//                 ВУ получает записи через UpdateDB и вставляет as-is.
+// - local_config: key/value конфиг этого узла (master_address, свой device_id).
+constexpr const char* kSchemaSql = R"sql(
+CREATE TABLE IF NOT EXISTS devices(
+    device_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address   TEXT    NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS files(
+    file_id         TEXT    NOT NULL,
+    version         INTEGER NOT NULL,
+    name            TEXT    NOT NULL,
+    owner_device_id INTEGER NOT NULL,
+    PRIMARY KEY(file_id, version)
+);
+CREATE INDEX IF NOT EXISTS files_by_id ON files(file_id);
+
+CREATE TABLE IF NOT EXISTS wal(
+    seq_id               INTEGER PRIMARY KEY,
+    timestamp            INTEGER NOT NULL,
+    op_type              INTEGER NOT NULL,  -- 0=FILE_UPDATE, 1=DEVICE_UPDATE
+    file_id              TEXT,
+    file_name            TEXT,
+    file_version         INTEGER,
+    file_owner_device_id INTEGER,
+    device_id            INTEGER,
+    device_address       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS local_config(
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 )sql";
-}
 
-std::string schema_sql() {
-    return std::string{};
-}
-
-static int current_version(Connection& c) {
-    c.exec(bootstrap_sql());
-    auto st = c.prepare("SELECT version FROM schema_version LIMIT 1;");
-    if (st.step()) return static_cast<int>(st.col_i64(0));
-    return 0;
-}
-
-static void set_version(Connection& c, int v) {
-    c.exec("DELETE FROM schema_version;");
-    auto st = c.prepare("INSERT INTO schema_version(version) VALUES(?1);");
-    st.bind(1, v);
-    st.run();
-}
+}  // namespace
 
 void ensure_schema(Connection& c) {
-    const int v = current_version(c);
-    if (v == 0) {
-        c.begin();
-        try {
-            const auto s = schema_sql();
-            if (!s.empty()) c.exec(s);
-            set_version(c, 3);
-            c.commit();
-        } catch (...) {
-            c.rollback();
-            throw;
-        }
+    c.begin();
+    try {
+        c.exec(kSchemaSql);
+        c.commit();
+    } catch (...) {
+        c.rollback();
+        throw;
     }
 }
 
-}  // namespace p2p::db
+}  // namespace pear::db

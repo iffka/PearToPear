@@ -25,6 +25,8 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(CLI11 googletest)
 
+find_package(SQLite3 REQUIRED)
+
 # ---- библиотека workspace ----
 add_library(pear_fs
     src/pear/fs/workspace.cpp
@@ -32,6 +34,23 @@ add_library(pear_fs
 
 target_include_directories(pear_fs PUBLIC
     include
+)
+
+# ---- библиотека БД ----
+# Публичный заголовок: include/pear/db/sqlite_database.hpp
+# Реализует pear::net::DatabaseFacade поверх SQLite.
+add_library(pear_db
+    src/pear/db/sqlite.cpp
+    src/pear/db/schema.cpp
+    src/pear/db/sqlite_database.cpp
+)
+
+target_include_directories(pear_db PUBLIC
+    include
+)
+
+target_link_libraries(pear_db PUBLIC
+    SQLite::SQLite3
 )
 
 # ---- CLI приложение ----
@@ -46,6 +65,7 @@ target_include_directories(pear PRIVATE
 
 target_link_libraries(pear PRIVATE
     pear_fs
+    pear_db
     CLI11::CLI11
 )
 

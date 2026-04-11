@@ -1,18 +1,26 @@
 #include "sqlite.hpp"
 
-namespace p2p::db {
+namespace pear::db {
 
-static void throw_sqlite(sqlite3* db, const char* prefix) {
+namespace {
+
+// Формирует и кидает DbError с текущим sqlite errmsg.
+[[noreturn]] void throw_sqlite(sqlite3* db, const char* prefix) {
     std::string msg = prefix ? (std::string(prefix) + ": ") : "";
     msg += (db ? sqlite3_errmsg(db) : "sqlite error");
     throw DbError(msg);
 }
+
+}  // namespace
+
+// ---- Connection ----
 
 void Connection::open(const std::filesystem::path& file) {
     close();
     if (sqlite3_open(file.string().c_str(), &db_) != SQLITE_OK) {
         throw_sqlite(db_, "sqlite3_open");
     }
+    // FK-поддержка включена по умолчанию (на будущее).
     exec("PRAGMA foreign_keys = ON;");
 }
 
@@ -40,18 +48,16 @@ Statement Connection::prepare(std::string_view sql) {
     return Statement(db_, stmt);
 }
 
-void Connection::begin() {
-    exec("BEGIN;");
-}
-void Connection::commit() {
-    exec("COMMIT;");
-}
+void Connection::begin() { exec("BEGIN;"); }
+void Connection::commit() { exec("COMMIT;"); }
 
 void Connection::rollback() noexcept {
     if (db_) {
         (void)sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
     }
 }
+
+// ---- Statement ----
 
 void Statement::finalize() noexcept {
     if (stmt_) {
@@ -60,12 +66,8 @@ void Statement::finalize() noexcept {
     }
 }
 
-void Statement::reset() {
-    (void)sqlite3_reset(stmt_);
-}
-void Statement::clear_bindings() {
-    (void)sqlite3_clear_bindings(stmt_);
-}
+void Statement::reset() { (void)sqlite3_reset(stmt_); }
+void Statement::clear_bindings() { (void)sqlite3_clear_bindings(stmt_); }
 
 void Statement::bind(int idx, std::int64_t v) {
     if (sqlite3_bind_int64(stmt_, idx, static_cast<sqlite3_int64>(v)) != SQLITE_OK) {
@@ -111,6 +113,7 @@ void Statement::run() {
 bool Statement::is_null(int col) const {
     return sqlite3_column_type(stmt_, col) == SQLITE_NULL;
 }
+
 std::int64_t Statement::col_i64(int col) const {
     return sqlite3_column_int64(stmt_, col);
 }
@@ -120,4 +123,4 @@ std::string Statement::col_text(int col) const {
     return p ? reinterpret_cast<const char*>(p) : std::string{};
 }
 
-}  // namespace p2p::db
+}  // namespace pear::db
