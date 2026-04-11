@@ -17,10 +17,11 @@ void run_deinit() {
 #endif
 }
 
-void run_connect(const std::string& repo_id) {
+void run_connect(const std::string& repo_id, bool is_main) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_connect called\n";
     std::cout << "[DEBUG] repo_id: " << repo_id << '\n';
+    std::cout << "[DEBUG] is_main: " << std::boolalpha << is_main << '\n';
 #endif
 }
 

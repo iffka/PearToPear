@@ -17,8 +17,10 @@ int main(int argc, char** argv) {
     CLI::App* deinit = app.add_subcommand("deinit", "Remove the local Pear workspace");
 
     std::string repo_id;
+    bool is_main = false;
     CLI::App* connect = app.add_subcommand("connect", "Connect to an existing Pear workspace");
     connect->add_option("repo_id", repo_id, "Pear workspace id")->required();
+    connect->add_flag("--main", is_main, "Run as main node");
 
     CLI::App* disconnect = app.add_subcommand("disconnect", "Disconnect from the current Pear workspace");
 
@@ -52,7 +54,7 @@ int main(int argc, char** argv) {
 
     init->callback([&]() { pear::cli::run_init(workspace_path); });
     deinit->callback([&]() { pear::cli::run_deinit(); });
-    connect->callback([&]() { pear::cli::run_connect(repo_id); });
+    connect->callback([&]() { pear::cli::run_connect(repo_id, is_main); });
     disconnect->callback([&]() { pear::cli::run_disconnect(); });
     add->callback([&]() {
         if (!add_all && add_paths.empty()) {
