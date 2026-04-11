@@ -43,13 +43,13 @@ std::vector<WalEntryInfo> RemoteClient::UpdateDB(const std::string& gu_address,
         info.timestamp = e.timestamp();
         info.op_type = static_cast<int>(e.op_type());
         if (e.has_file_update()) {
-            info.data.file.file_id = e.file_update().file_id();
-            info.data.file.name = e.file_update().name();
-            info.data.file.version = e.file_update().version();
-            info.data.file.owner_device_id = e.file_update().owner_device_id();
+            info.file.file_id = e.file_update().file_id();
+            info.file.name = e.file_update().name();
+            info.file.version = e.file_update().version();
+            info.file.owner_device_id = e.file_update().owner_device_id();
         } else if (e.has_device_update()) {
-            info.data.device.device_id = e.device_update().device_id();
-            info.data.device.address = e.device_update().address();
+            info.device.device_id = e.device_update().device_id();
+            info.device.address = e.device_update().address();
         }
         entries.push_back(info);
     }
@@ -71,14 +71,14 @@ bool RemoteClient::PushWAL(const std::string& gu_address,
         pe->set_op_type(static_cast<WalOpType>(e.op_type));
         if (e.op_type == 0) {
             auto* fu = pe->mutable_file_update();
-            fu->set_file_id(e.data.file.file_id);
-            fu->set_name(e.data.file.name);
-            fu->set_version(e.data.file.version);
-            fu->set_owner_device_id(e.data.file.owner_device_id);
+            fu->set_file_id(e.file.file_id);
+            fu->set_name(e.file.name);
+            fu->set_version(e.file.version);
+            fu->set_owner_device_id(e.file.owner_device_id);
         } else if (e.op_type == 1) {
             auto* du = pe->mutable_device_update();
-            du->set_device_id(e.data.device.device_id);
-            du->set_address(e.data.device.address);
+            du->set_device_id(e.device.device_id);
+            du->set_address(e.device.address);
         }
     }
     PushWALResponse resp;

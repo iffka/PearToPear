@@ -20,14 +20,14 @@ grpc::Status MasterServiceImpl::RegisterDevice(grpc::ServerContext* /*ctx*/,
             pe->set_op_type(static_cast<WalOpType>(entry.op_type));
             if (entry.op_type == 0) {
                 auto* fu = pe->mutable_file_update();
-                fu->set_file_id(entry.data.file.file_id);
-                fu->set_name(entry.data.file.name);
-                fu->set_version(entry.data.file.version);
-                fu->set_owner_device_id(entry.data.file.owner_device_id);
+                fu->set_file_id(entry.file.file_id);
+                fu->set_name(entry.file.name);
+                fu->set_version(entry.file.version);
+                fu->set_owner_device_id(entry.file.owner_device_id);
             } else if (entry.op_type == 1) {
                 auto* du = pe->mutable_device_update();
-                du->set_device_id(entry.data.device.device_id);
-                du->set_address(entry.data.device.address);
+                du->set_device_id(entry.device.device_id);
+                du->set_address(entry.device.address);
             }
         }
     } catch (const std::exception& e) {
@@ -49,14 +49,14 @@ grpc::Status MasterServiceImpl::UpdateDB(grpc::ServerContext* /*ctx*/,
             pe->set_op_type(static_cast<WalOpType>(entry.op_type));
             if (entry.op_type == 0) {
                 auto* fu = pe->mutable_file_update();
-                fu->set_file_id(entry.data.file.file_id);
-                fu->set_name(entry.data.file.name);
-                fu->set_version(entry.data.file.version);
-                fu->set_owner_device_id(entry.data.file.owner_device_id);
+                fu->set_file_id(entry.file.file_id);
+                fu->set_name(entry.file.name);
+                fu->set_version(entry.file.version);
+                fu->set_owner_device_id(entry.file.owner_device_id);
             } else if (entry.op_type == 1) {
                 auto* du = pe->mutable_device_update();
-                du->set_device_id(entry.data.device.device_id);
-                du->set_address(entry.data.device.address);
+                du->set_device_id(entry.device.device_id);
+                du->set_address(entry.device.address);
             }
         }
         resp->set_success(true);
@@ -78,13 +78,13 @@ grpc::Status MasterServiceImpl::PushWAL(grpc::ServerContext* /*ctx*/,
             info.timestamp = entry.timestamp();
             info.op_type = static_cast<int>(entry.op_type());
             if (entry.has_file_update()) {
-                info.data.file.file_id = entry.file_update().file_id();
-                info.data.file.name = entry.file_update().name();
-                info.data.file.version = entry.file_update().version();
-                info.data.file.owner_device_id = entry.file_update().owner_device_id();
+                info.file.file_id = entry.file_update().file_id();
+                info.file.name = entry.file_update().name();
+                info.file.version = entry.file_update().version();
+                info.file.owner_device_id = entry.file_update().owner_device_id();
             } else if (entry.has_device_update()) {
-                info.data.device.device_id = entry.device_update().device_id();
-                info.data.device.address = entry.device_update().address();
+                info.device.device_id = entry.device_update().device_id();
+                info.device.address = entry.device_update().address();
             }
             uint64_t new_seq = db_->addWalEntry(info);
             resp->add_assigned_seq_ids(new_seq);

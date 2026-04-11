@@ -34,24 +34,14 @@ target_include_directories(pear_fs PUBLIC
     include
 )
 
-# ---- CLI приложение ----
-add_executable(pear
-    src/main.cpp
-    src/pear/cli/commands.cpp
-)
-
-target_include_directories(pear PRIVATE
-    include
-)
-
-target_link_libraries(pear PRIVATE
-    pear_fs
-    CLI11::CLI11
-)
-
 # ---- gRPC и Protobuf ----
 find_package(gRPC CONFIG REQUIRED)
 find_package(Protobuf REQUIRED)
+
+get_target_property(gRPC_CPP_PLUGIN gRPC::grpc_cpp_plugin LOCATION)
+if(NOT gRPC_CPP_PLUGIN)
+    message(FATAL_ERROR "gRPC cpp plugin not found")
+endif()
 
 set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
 set(PROTO_FILES ${PROTO_DIR}/p2p.proto)
@@ -101,8 +91,21 @@ target_link_libraries(pear_net
     protobuf::libprotobuf
 )
 
-# ---- добавить линковку к основному приложению pear ----
-target_link_libraries(pear PRIVATE pear_net)
+# ---- CLI приложение ----
+add_executable(pear
+    src/main.cpp
+    src/pear/cli/commands.cpp
+)
+
+target_include_directories(pear PRIVATE
+    include
+)
+
+target_link_libraries(pear PRIVATE
+    pear_fs
+    pear_net
+    CLI11::CLI11
+)
 
 if(PEAR_DEBUG)
     target_compile_definitions(pear PRIVATE PEAR_DEBUG)
