@@ -39,11 +39,6 @@ fs::path Workspace::create_empty_file(const std::string& filename) {
     return file_path;
 }
 
-// generate_object_id пока что просто для примера
-std::string Workspace::generate_object_id(const fs::path& path_to_local_file) {
-    return path_to_local_file.filename().string();
-}
-
 // getters:
 const fs::path& Workspace::get_root() const {
     return m_root;

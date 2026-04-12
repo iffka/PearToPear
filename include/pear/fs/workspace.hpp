@@ -22,8 +22,6 @@ private:
     fs::path create_empty_file(const std::string& filename);
 
 public:
-    // generate_object_id пока что просто для примера
-    static std::string generate_object_id(const fs::path& path_to_local_file);
 
     // getters:
     const fs::path& get_root() const;
