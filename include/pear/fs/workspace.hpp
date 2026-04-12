@@ -36,13 +36,13 @@ public:
 
     fs::path create_objectfile(const std::string& object_name, const fs::path& path_to_source_file);
     fs::path get_objectfile_path(const std::string& object_name) const;
-    void delete_objectfile(const std::string& id);
+    void delete_objectfile(const std::string& object_name);
 
     void create_all_empty_files(const std::vector<std::string>& names_to_meta_files);
 
     std::vector<std::string> get_list_object_ids() const;
 
-    bool has_objectfile(const std::string& id) const;
+    bool has_objectfile(const std::string& object_name) const;
 };
 
 }  // namespace pear::storage
