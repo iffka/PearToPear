@@ -34,7 +34,8 @@ public:
     static Workspace init(const fs::path& root = fs::current_path());
     static Workspace discover(const fs::path& start_dir = fs::current_path());
 
-    fs::path create_objectfile(const fs::path& path_to_local_file);
+    fs::path create_objectfile(const std::string& object_name, const fs::path& path_to_source_file);
+    fs::path get_objectfile_path(const std::string& object_name) const;
     void delete_objectfile(const std::string& id);
 
     void create_all_empty_files(const std::vector<std::string>& names_to_meta_files);

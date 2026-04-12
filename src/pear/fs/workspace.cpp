@@ -75,17 +75,25 @@ Workspace Workspace::discover(const fs::path& start_dir) {
     return Workspace(*root);
 }
 
-fs::path Workspace::create_objectfile(const fs::path& path_to_local_file) {
-    if (!fs::exists(path_to_local_file) || !fs::is_regular_file(path_to_local_file))
+fs::path Workspace::create_objectfile(const std::string& object_name, const fs::path& path_to_source_file) {
+    if (!fs::exists(path_to_source_file) || !fs::is_regular_file(path_to_source_file)) {
         throw std::runtime_error("Invalid file");
-    std::string object_id = generate_object_id(path_to_local_file);
-    fs::path object_path = m_obj_dir / object_id;
-    fs::copy_file(path_to_local_file, object_path);
+    }
+    fs::path object_path = m_obj_dir / object_name;
+    fs::copy_file(path_to_source_file, object_path, fs::copy_options::overwrite_existing);
     return object_path;
 }
 
-void Workspace::delete_objectfile(const std::string& id) {
-    fs::path object_path = m_obj_dir / id;
+fs::path Workspace::get_objectfile_path(const std::string& object_name) const {
+    fs::path object_path = m_obj_dir / object_name;
+    if (!fs::exists(object_path) || !fs::is_regular_file(object_path)) {
+        throw std::runtime_error("Invalid object file");
+    }
+    return object_path;
+}
+
+void Workspace::delete_objectfile(const std::string& object_name) {
+    fs::path object_path = m_obj_dir / object_name;
     if (!fs::exists(object_path) || !fs::is_regular_file(object_path))
         throw std::runtime_error("Invalid object file");
     fs::remove(object_path);
@@ -107,8 +115,8 @@ std::vector<std::string> Workspace::get_list_object_ids() const {
     return object_ids;
 }
 
-bool Workspace::has_objectfile(const std::string& id) const {
-    fs::path object_path = m_obj_dir / id;
+bool Workspace::has_objectfile(const std::string& object_name) const {
+    fs::path object_path = m_obj_dir / object_name;
     return fs::is_regular_file(object_path);
 }
 
