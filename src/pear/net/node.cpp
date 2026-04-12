@@ -7,7 +7,8 @@
 
 namespace pear::net {
 
-Node::Node( std::shared_ptr<DatabaseFacade> db, std::shared_ptr<pear::storage::Workspace> workspace, bool is_master) : db_(std::move(db)), workspace_(std::move(workspace)), is_master_(is_master) {}
+Node::Node(std::shared_ptr<pear::db::SqliteDatabase> db, std::shared_ptr<pear::storage::Workspace> workspace, bool is_master)
+    : db_(std::move(db)), workspace_(std::move(workspace)), is_master_(is_master) {}
 
 Node::~Node() {
     stop();

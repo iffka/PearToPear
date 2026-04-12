@@ -7,9 +7,8 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include <pear/db/sqlite_database.hpp>
 #include <pear/fs/workspace.hpp>
-
-#include "db_contract.hpp"
 
 namespace pear::net {
 
@@ -18,8 +17,7 @@ class StorageServiceImpl;
 
 class Node {
 public:
-    Node(std::shared_ptr<DatabaseFacade> db, std::shared_ptr<pear::storage::Workspace> workspace, bool is_master = false);
-
+    Node(std::shared_ptr<pear::db::SqliteDatabase> db, std::shared_ptr<pear::storage::Workspace> workspace, bool is_master = false);
     ~Node();
 
     void start(const std::string& listen_address, bool storage_only = false);
@@ -29,7 +27,7 @@ public:
 private:
     void runServerThread(const std::string& address, bool storage_only);
 
-    std::shared_ptr<DatabaseFacade> db_;
+    std::shared_ptr<pear::db::SqliteDatabase> db_;
     std::shared_ptr<pear::storage::Workspace> workspace_;
     bool is_master_;
 

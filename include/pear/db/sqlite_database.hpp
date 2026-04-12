@@ -8,44 +8,38 @@
 #include <string>
 #include <vector>
 
-#include <pear/net/db_contract.hpp>
+#include <pear/net/db_types.hpp>
 
 namespace pear::db {
 
 class Connection;
 
-class SqliteDatabase : public pear::net::DatabaseFacade {
+class SqliteDatabase {
 public:
     explicit SqliteDatabase(const std::filesystem::path& db_path);
-    ~SqliteDatabase() override;
+    ~SqliteDatabase();
 
     SqliteDatabase(const SqliteDatabase&) = delete;
     SqliteDatabase& operator=(const SqliteDatabase&) = delete;
     SqliteDatabase(SqliteDatabase&&) noexcept = default;
     SqliteDatabase& operator=(SqliteDatabase&&) noexcept = default;
 
-    std::vector<pear::net::WalEntryInfo> getWalEntriesSince(uint64_t last_seq_id) override;
-    void applyWalEntries(const std::vector<pear::net::WalEntryInfo>& entries) override;
+    std::vector<pear::net::WalEntryInfo> getWalEntriesSince(uint64_t last_seq_id);
+    void applyWalEntries(const std::vector<pear::net::WalEntryInfo>& entries);
+    std::optional<pear::net::FileUpdateInfo> getFileInfo(const std::string& file_id, uint64_t version);
+    uint64_t addWalEntry(const pear::net::WalEntryInfo& entry);
+    uint64_t getLastSeqId();
+    std::vector<pear::net::FileUpdateInfo> getAllFiles();
+    void clearStaging();
 
-    std::optional<pear::net::FileUpdateInfo> getFileInfo(
-        const std::string& file_id,
-        uint64_t version
-    ) override;
+    uint64_t registerDevice(const std::string& address);
+    std::string getDeviceAddress(uint64_t device_id);
 
-    uint64_t addWalEntry(const pear::net::WalEntryInfo& entry) override;
-    uint64_t getLastSeqId() override;
-    std::vector<pear::net::FileUpdateInfo> getAllFiles() override;
+    void setMasterAddress(const std::string& address);
+    std::string getMasterAddress();
 
-    void clearStaging() override;
-
-    uint64_t registerDevice(const std::string& address) override;
-    std::string getDeviceAddress(uint64_t device_id) override;
-
-    void setMasterAddress(const std::string& address) override;
-    std::string getMasterAddress() override;
-
-    void setDeviceId(uint64_t id) override;
-    uint64_t getDeviceId() override;
+    void setDeviceId(uint64_t id);
+    uint64_t getDeviceId();
 
     std::vector<std::string> getAllFileStatus();
 
