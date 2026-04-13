@@ -1,6 +1,19 @@
 #include <pear/cli/commands.hpp>
 
+#include <pear/db/sqlite_database.hpp>
+#include <pear/fs/workspace.hpp>
+
+#include "command_helpers.hpp"
+
+#include <filesystem>
 #include <iostream>
+#include <stdexcept>
+
+namespace {
+
+constexpr const char* GRUSHA = "🍐 ";
+
+} // namespace
 
 namespace pear::cli {
 
@@ -9,6 +22,11 @@ void run_init(const std::filesystem::path& workspace_path) {
     std::cout << "[DEBUG] run_init called\n";
     std::cout << "[DEBUG] workspace_path: " << workspace_path << '\n';
 #endif
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::init(workspace_path);
+    [[maybe_unused]] pear::db::SqliteDatabase database(get_database_path(workspace));
+    std::cout << GRUSHA << "initialized workspace at " << workspace.get_root() << '\n';
+
 }
 
 void run_deinit() {
