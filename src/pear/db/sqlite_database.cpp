@@ -1,4 +1,4 @@
-#include "sqlite_database.hpp"
+#include <pear/db/sqlite_database.hpp>
 
 #include <string_view>
 
@@ -36,7 +36,7 @@ std::string getLatestKnownFileName(Connection& conn, const std::string& file_id)
     return st.col_text(0);
 }
 
-void bindWalEntryState(sqlite::Statement& st, const WalEntryInfo& entry) {
+void bindWalEntryState(Statement& st, const WalEntryInfo& entry) {
     st.bind(1, entry.seq_id);
     st.bind(2, entry.timestamp);
     st.bind(3, static_cast<int>(entry.op_type));
