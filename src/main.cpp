@@ -16,11 +16,16 @@ int main(int argc, char** argv) {
 
     CLI::App* deinit = app.add_subcommand("deinit", "Remove the local Pear workspace");
 
-    std::string repo_id;
+    std::string gu_address;
+    std::string listen_address;
     bool is_main = false;
-    CLI::App* connect = app.add_subcommand("connect", "Connect to an existing Pear workspace");
-    connect->add_option("repo_id", repo_id, "Pear workspace id")->required();
-    connect->add_flag("--main", is_main, "Run as main node");
+
+    CLI::App* connect = app.add_subcommand("connect", "Connect to a Pear workspace");
+    auto* connect_main_opt = connect->add_flag("--main", is_main, "Run as main node");
+    auto* connect_gu_opt = connect->add_option("--gu", gu_address, "Main node address ip:port");
+    auto* connect_listen_opt = connect->add_option("--listen", listen_address, "Local listen address ip:port")->required();
+
+    connect_main_opt->excludes(connect_gu_opt);
 
     CLI::App* disconnect = app.add_subcommand("disconnect", "Disconnect from the current Pear workspace");
 
@@ -54,7 +59,12 @@ int main(int argc, char** argv) {
 
     init->callback([&]() { pear::cli::run_init(workspace_path); });
     deinit->callback([&]() { pear::cli::run_deinit(); });
-    connect->callback([&]() { pear::cli::run_connect(repo_id, is_main); });
+    connect->callback([&]() {
+        if (!is_main && gu_address.empty()) {
+            throw CLI::ValidationError("connect", "Specify --gu for non-main node");
+        }
+        pear::cli::run_connect(gu_address, listen_address, is_main);
+    });
     disconnect->callback([&]() { pear::cli::run_disconnect(); });
     add->callback([&]() {
         if (!add_all && add_paths.empty()) {
