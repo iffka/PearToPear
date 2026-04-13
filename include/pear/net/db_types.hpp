@@ -6,24 +6,38 @@
 
 namespace pear::net {
 
+enum WalOpTypeInfo {
+  kFileUpdate = 0,
+  kDeviceUpdate = 1,
+  kFileDelete = 2
+};
+
 struct FileUpdateInfo {
-    std::string file_id;
-    std::string name;
-    uint64_t version;
-    uint64_t owner_device_id;
+  std::string file_id;
+  std::string name;
+  uint64_t version;
+  uint64_t owner_device_id;
+};
+
+struct FileDeleteInfo {
+  std::string file_id;
+  uint64_t version;
+  uint64_t owner_device_id;
 };
 
 struct DeviceUpdateInfo {
-    uint64_t device_id;
-    std::string address;
+  uint64_t device_id;
+  std::string address;
 };
 
 struct WalEntryInfo {
-    uint64_t seq_id;
-    uint64_t timestamp;
-    int op_type;
-    FileUpdateInfo file;
-    DeviceUpdateInfo device;
+  uint64_t seq_id;
+  uint64_t timestamp;
+  WalOpTypeInfo op_type;
+
+  FileUpdateInfo file;
+  FileDeleteInfo file_delete;
+  DeviceUpdateInfo device;
 };
 
 } // namespace pear::net
