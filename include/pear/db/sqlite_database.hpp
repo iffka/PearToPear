@@ -29,6 +29,7 @@ public:
     std::optional<pear::net::FileUpdateInfo> getFileInfo(const std::string& file_id, uint64_t version);
     uint64_t addWalEntry(const pear::net::WalEntryInfo& entry);
     uint64_t getLastSeqId();
+    uint64_t getNextVersion(const std::string& file_id);
     std::vector<pear::net::FileUpdateInfo> getAllFiles();
     void clearStaging();
 
