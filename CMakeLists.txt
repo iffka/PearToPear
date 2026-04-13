@@ -74,16 +74,22 @@ if(PEAR_DEBUG)
 endif()
 
 # ---- тесты ----
-enable_testing()
+option(PEAR_BUILD_TESTS "Build tests" OFF)
 
-add_executable(workspace_test
-    tests/pear/fs/workspace_test.cpp
-)
+if(PEAR_BUILD_TESTS)
+    enable_testing()
 
-target_link_libraries(workspace_test PRIVATE
-    pear_fs
-    GTest::gtest
-    GTest::gtest_main
-)
+    find_package(GTest REQUIRED)
 
-add_test(NAME workspace_test COMMAND workspace_test)
+    add_executable(workspace_test
+        tests/pear/fs/workspace_test.cpp
+    )
+
+    target_link_libraries(workspace_test PRIVATE
+        pear_fs
+        GTest::gtest
+        GTest::gtest_main
+    )
+
+    add_test(NAME workspace_test COMMAND workspace_test)
+endif()
