@@ -1,12 +1,81 @@
 #include <pear/net/master_service.hpp>
 
+#include <exception>
 #include <utility>
 
 namespace pear::net {
 
-MasterServiceImpl::MasterServiceImpl(std::shared_ptr<pear::db::SqliteDatabase> db) : db_(std::move(db)) {}
+namespace {
 
-grpc::Status MasterServiceImpl::RegisterDevice(grpc::ServerContext* /*ctx*/, const RegisterRequest* req, RegisterResponse* resp) {
+void fillProtoWalEntry(WalEntry* proto_entry, const WalEntryInfo& entry) {
+    proto_entry->set_seq_id(entry.seq_id);
+    proto_entry->set_timestamp(entry.timestamp);
+    proto_entry->set_op_type(static_cast<WalOpType>(entry.op_type));
+
+    if (entry.op_type == WalOpTypeInfo::kFileUpdate) {
+        auto* file_update = proto_entry->mutable_file_update();
+        file_update->set_file_id(entry.file.file_id);
+        file_update->set_name(entry.file.name);
+        file_update->set_version(entry.file.version);
+        file_update->set_owner_device_id(entry.file.owner_device_id);
+        return;
+    }
+
+    if (entry.op_type == WalOpTypeInfo::kFileDelete) {
+        auto* file_delete = proto_entry->mutable_file_delete();
+        file_delete->set_file_id(entry.file_delete.file_id);
+        file_delete->set_version(entry.file_delete.version);
+        file_delete->set_owner_device_id(entry.file_delete.owner_device_id);
+        return;
+    }
+
+    if (entry.op_type == WalOpTypeInfo::kDeviceUpdate) {
+        auto* device_update = proto_entry->mutable_device_update();
+        device_update->set_device_id(entry.device.device_id);
+        device_update->set_address(entry.device.address);
+    }
+}
+
+WalEntryInfo parseProtoWalEntry(const WalEntry& proto_entry) {
+    WalEntryInfo entry;
+
+    entry.seq_id = proto_entry.seq_id();
+    entry.timestamp = proto_entry.timestamp();
+    entry.op_type = static_cast<WalOpTypeInfo>(proto_entry.op_type());
+
+    if (proto_entry.has_file_update()) {
+        entry.file.file_id = proto_entry.file_update().file_id();
+        entry.file.name = proto_entry.file_update().name();
+        entry.file.version = proto_entry.file_update().version();
+        entry.file.owner_device_id = proto_entry.file_update().owner_device_id();
+        return entry;
+    }
+
+    if (proto_entry.has_file_delete()) {
+        entry.file_delete.file_id = proto_entry.file_delete().file_id();
+        entry.file_delete.version = proto_entry.file_delete().version();
+        entry.file_delete.owner_device_id = proto_entry.file_delete().owner_device_id();
+        return entry;
+    }
+
+    if (proto_entry.has_device_update()) {
+        entry.device.device_id = proto_entry.device_update().device_id();
+        entry.device.address = proto_entry.device_update().address();
+    }
+
+    return entry;
+}
+
+} // namespace
+
+MasterServiceImpl::MasterServiceImpl(std::shared_ptr<pear::db::SqliteDatabase> db)
+    : db_(std::move(db)) {}
+
+grpc::Status MasterServiceImpl::RegisterDevice(
+    grpc::ServerContext* /*ctx*/,
+    const RegisterRequest* req,
+    RegisterResponse* resp
+) {
     try {
         uint64_t new_id = db_->registerDevice(req->address());
 
@@ -15,22 +84,8 @@ grpc::Status MasterServiceImpl::RegisterDevice(grpc::ServerContext* /*ctx*/, con
 
         auto full_wal = db_->getWalEntriesSince(0);
         for (const auto& entry : full_wal) {
-            auto* pe = resp->add_full_wal();
-            pe->set_seq_id(entry.seq_id);
-            pe->set_timestamp(entry.timestamp);
-            pe->set_op_type(static_cast<WalOpType>(entry.op_type));
-
-            if (entry.op_type == 0) {
-                auto* fu = pe->mutable_file_update();
-                fu->set_file_id(entry.file.file_id);
-                fu->set_name(entry.file.name);
-                fu->set_version(entry.file.version);
-                fu->set_owner_device_id(entry.file.owner_device_id);
-            } else if (entry.op_type == 1) {
-                auto* du = pe->mutable_device_update();
-                du->set_device_id(entry.device.device_id);
-                du->set_address(entry.device.address);
-            }
+            auto* proto_entry = resp->add_full_wal();
+            fillProtoWalEntry(proto_entry, entry);
         }
     } catch (const std::exception& e) {
         resp->set_success(false);
@@ -40,27 +95,17 @@ grpc::Status MasterServiceImpl::RegisterDevice(grpc::ServerContext* /*ctx*/, con
     return grpc::Status::OK;
 }
 
-grpc::Status MasterServiceImpl::UpdateDB(grpc::ServerContext* /*ctx*/, const UpdateDBRequest* req, UpdateDBResponse* resp) {
+grpc::Status MasterServiceImpl::UpdateDB(
+    grpc::ServerContext* /*ctx*/,
+    const UpdateDBRequest* req,
+    UpdateDBResponse* resp
+) {
     try {
         auto entries = db_->getWalEntriesSince(req->last_seq_id());
 
         for (const auto& entry : entries) {
-            auto* pe = resp->add_entries();
-            pe->set_seq_id(entry.seq_id);
-            pe->set_timestamp(entry.timestamp);
-            pe->set_op_type(static_cast<WalOpType>(entry.op_type));
-
-            if (entry.op_type == 0) {
-                auto* fu = pe->mutable_file_update();
-                fu->set_file_id(entry.file.file_id);
-                fu->set_name(entry.file.name);
-                fu->set_version(entry.file.version);
-                fu->set_owner_device_id(entry.file.owner_device_id);
-            } else if (entry.op_type == 1) {
-                auto* du = pe->mutable_device_update();
-                du->set_device_id(entry.device.device_id);
-                du->set_address(entry.device.address);
-            }
+            auto* proto_entry = resp->add_entries();
+            fillProtoWalEntry(proto_entry, entry);
         }
 
         resp->set_success(true);
@@ -72,28 +117,20 @@ grpc::Status MasterServiceImpl::UpdateDB(grpc::ServerContext* /*ctx*/, const Upd
     return grpc::Status::OK;
 }
 
-grpc::Status MasterServiceImpl::PushWAL(grpc::ServerContext* /*ctx*/, const PushWALRequest* req, PushWALResponse* resp) {
+grpc::Status MasterServiceImpl::PushWAL(
+    grpc::ServerContext* /*ctx*/,
+    const PushWALRequest* req,
+    PushWALResponse* resp
+) {
     try {
         for (int i = 0; i < req->entries_size(); ++i) {
-            const auto& entry = req->entries(i);
+            const auto& proto_entry = req->entries(i);
+            WalEntryInfo entry = parseProtoWalEntry(proto_entry);
 
-            WalEntryInfo info;
-            info.seq_id = 0;
-            info.timestamp = entry.timestamp();
-            info.op_type = static_cast<int>(entry.op_type());
+            entry.seq_id = 0;
 
-            if (entry.has_file_update()) {
-                info.file.file_id = entry.file_update().file_id();
-                info.file.name = entry.file_update().name();
-                info.file.version = entry.file_update().version();
-                info.file.owner_device_id = entry.file_update().owner_device_id();
-            } else if (entry.has_device_update()) {
-                info.device.device_id = entry.device_update().device_id();
-                info.device.address = entry.device_update().address();
-            }
-
-            uint64_t new_seq = db_->addWalEntry(info);
-            resp->add_assigned_seq_ids(new_seq);
+            uint64_t new_seq_id = db_->addWalEntry(entry);
+            resp->add_assigned_seq_ids(new_seq_id);
         }
 
         resp->set_success(true);
