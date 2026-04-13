@@ -352,8 +352,58 @@ std::vector<FileUpdateInfo> SqliteDatabase::getAllFiles() {
     return out;
 }
 
+void SqliteDatabase::stageFile(
+    const std::string& file_id,
+    const std::string& name,
+    const std::string& local_path
+) {
+    auto st = conn_->prepare(R"sql(
+        INSERT INTO staging_files(file_id, name, local_path)
+        VALUES(?1, ?2, ?3)
+        ON CONFLICT(file_id) DO UPDATE
+        SET name = excluded.name,
+            local_path = excluded.local_path;
+    )sql");
+
+    st.bind(1, file_id);
+    st.bind(2, name);
+    st.bind(3, local_path);
+    st.run();
+}
+
+void SqliteDatabase::unstageFile(const std::string& file_id) {
+    auto st = conn_->prepare(R"sql(
+        DELETE FROM staging_files
+        WHERE file_id = ?1;
+    )sql");
+
+    st.bind(1, file_id);
+    st.run();
+}
+
+std::vector<StagedFileInfo> SqliteDatabase::getStagedFiles() {
+    std::vector<StagedFileInfo> out;
+
+    auto st = conn_->prepare(R"sql(
+        SELECT file_id, name, local_path
+        FROM staging_files
+        ORDER BY name ASC;
+    )sql");
+
+    while (st.step()) {
+        StagedFileInfo info;
+        info.file_id = st.col_text(0);
+        info.name = st.col_text(1);
+        info.local_path = st.col_text(2);
+        out.push_back(std::move(info));
+    }
+
+    return out;
+}
+
 void SqliteDatabase::clearStaging() {
-    // Пока staging в БД не хранится.
+    auto st = conn_->prepare("DELETE FROM staging_files;");
+    st.run();
 }
 
 uint64_t SqliteDatabase::registerDevice(const std::string& address) {

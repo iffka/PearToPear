@@ -13,6 +13,8 @@ namespace {
 //   is_deleted хранит материализованное текущее состояние версии.
 // - wal: упорядоченный журнал операций. seq_id назначается ГУ,
 //   ВУ получает записи через UpdateDB и вставляет as-is.
+// - staging_files: локальный staging этого узла.
+//   Это не сетевое состояние, а очередь файлов для будущего push.
 // - local_config: key/value конфиг этого узла
 //   (master_address, свой device_id).
 constexpr const char* kSchemaSql = R"sql(
@@ -44,6 +46,12 @@ CREATE TABLE IF NOT EXISTS wal(
 
     device_id INTEGER,
     device_address TEXT
+);
+
+CREATE TABLE IF NOT EXISTS staging_files(
+    file_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    local_path TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS local_config(

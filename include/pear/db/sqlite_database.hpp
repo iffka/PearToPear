@@ -14,6 +14,12 @@ namespace pear::db {
 
 class Connection;
 
+struct StagedFileInfo {
+    std::string file_id;
+    std::string name;
+    std::string local_path;
+};
+
 class SqliteDatabase {
 public:
     explicit SqliteDatabase(const std::filesystem::path& db_path);
@@ -31,6 +37,9 @@ public:
     uint64_t getLastSeqId();
     uint64_t getNextVersion(const std::string& file_id);
     std::vector<pear::net::FileUpdateInfo> getAllFiles();
+    void stageFile(const std::string& file_id, const std::string& name, const std::string& local_path);
+    void unstageFile(const std::string& file_id);
+    std::vector<StagedFileInfo> getStagedFiles();
     void clearStaging();
 
     uint64_t registerDevice(const std::string& address);
