@@ -146,21 +146,46 @@ void write_pid_file(const std::filesystem::path& pid_file, pid_t pid) {
     }
 }
 
-[[noreturn]] void daemon_child_main(
-    const std::filesystem::path& workspace_root,
-    const std::string& repo_id,
-    bool is_main,
-    int status_fd
-) {
+volatile sig_atomic_t stop_requested = 0;
+
+void handle_stop_signal(int /*signal_number*/) {
+    stop_requested = 1;
+}
+
+void install_stop_handlers() {
+    struct sigaction action {};
+    action.sa_handler = handle_stop_signal;
+    ::sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+
+    if (::sigaction(SIGTERM, &action, nullptr) == -1) {
+        throw make_errno_error("failed to install SIGTERM handler");
+    }
+
+    if (::sigaction(SIGINT, &action, nullptr) == -1) {
+        throw make_errno_error("failed to install SIGINT handler");
+    }
+}
+
+[[noreturn]] void daemon_child_main(const std::filesystem::path& workspace_root, const std::string& repo_id, bool is_main, int status_fd) {
+    std::filesystem::path pid_file;
+    bool pid_file_written = false;
     try {
+        (void)repo_id;
+        (void)is_main;
+
+        stop_requested = 0;
+
         if (::signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
             throw make_errno_error("failed to ignore SIGPIPE");
         }
 
+        install_stop_handlers();
+
         if (::setsid() == -1) {
             throw make_errno_error("setsid failed");
         }
-        
+
         pid_t second_pid = ::fork();
         if (second_pid == -1) {
             throw make_errno_error("second fork failed");
@@ -180,22 +205,30 @@ void write_pid_file(const std::filesystem::path& pid_file, pid_t pid) {
         close_all_fds_except(status_fd);
         redirect_stdio_to_devnull();
 
-        std::filesystem::path pid_file = pear::storage::Workspace::discover(workspace_root).get_meta_dir() / "demon.pid";
-
-        // тут поднимаем сервер для файлов
-
+        pid_file = pear::storage::Workspace::discover(workspace_root).get_meta_dir() / "demon.pid";
         write_pid_file(pid_file, ::getpid());
+        pid_file_written = true;
+
         send_ok(status_fd);
         ::close(status_fd);
 
-        // После успешного старта сюда должен перейти основной цикл демона.
-        // пока что тупая заглушка
-        pause();
+        while (!stop_requested) {
+            ::pause();
+        }
+
+        if (pid_file_written) {
+            std::filesystem::remove(pid_file);
+        }
+
         ::_exit(EXIT_SUCCESS);
     } catch (const std::exception& exception) {
         try {
             send_fail(status_fd, exception.what());
         } catch (...) {
+        }
+
+        if (pid_file_written) {
+            std::filesystem::remove(pid_file);
         }
 
         ::close(status_fd);
@@ -204,6 +237,10 @@ void write_pid_file(const std::filesystem::path& pid_file, pid_t pid) {
         try {
             send_fail(status_fd, "unknown error");
         } catch (...) {
+        }
+
+        if (pid_file_written) {
+            std::filesystem::remove(pid_file);
         }
 
         ::close(status_fd);
