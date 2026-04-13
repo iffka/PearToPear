@@ -1,5 +1,8 @@
 #include <pear/net/remote_client.hpp>
 
+#include <grpcpp/create_channel.h>
+#include <grpcpp/security/credentials.h>
+
 #include <fstream>
 #include <stdexcept>
 #include <utility>

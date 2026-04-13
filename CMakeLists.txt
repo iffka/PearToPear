@@ -29,7 +29,10 @@ endif()
 
 find_package(SQLite3 REQUIRED)
 find_package(Protobuf REQUIRED)
-find_package(gRPC REQUIRED)
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
+find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
 
 set(PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/proto/p2p.proto)
 set(PROTO_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -47,12 +50,12 @@ add_custom_command(
         ${PROTO_HDRS}
         ${GRPC_SRCS}
         ${GRPC_HDRS}
-    COMMAND protobuf::protoc
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
     ARGS
         --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
         --cpp_out=${PROTO_BINARY_DIR}
         --grpc_out=${PROTO_BINARY_DIR}
-        --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
+        --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN}
         ${PROTO_FILE}
     DEPENDS
         ${PROTO_FILE}
@@ -66,11 +69,13 @@ add_library(pear_proto
 
 target_include_directories(pear_proto PUBLIC
     ${PROTO_BINARY_DIR}
+    ${Protobuf_INCLUDE_DIRS}
+    ${GRPC_INCLUDE_DIRS}
 )
 
 target_link_libraries(pear_proto PUBLIC
-    protobuf::libprotobuf
-    gRPC::grpc++
+    ${Protobuf_LIBRARIES}
+    PkgConfig::GRPC
 )
 
 add_library(pear_fs
@@ -90,10 +95,11 @@ add_library(pear_db
 target_include_directories(pear_db PUBLIC
     include
     src
+    ${SQLite3_INCLUDE_DIRS}
 )
 
 target_link_libraries(pear_db PUBLIC
-    SQLite::SQLite3
+    ${SQLite3_LIBRARIES}
 )
 
 add_library(pear_net
@@ -107,14 +113,16 @@ target_include_directories(pear_net PUBLIC
     include
     src
     ${PROTO_BINARY_DIR}
+    ${Protobuf_INCLUDE_DIRS}
+    ${GRPC_INCLUDE_DIRS}
 )
 
 target_link_libraries(pear_net PUBLIC
     pear_db
     pear_fs
     pear_proto
-    protobuf::libprotobuf
-    gRPC::grpc++
+    ${Protobuf_LIBRARIES}
+    PkgConfig::GRPC
 )
 
 add_library(pear_demon
