@@ -1,33 +1,78 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(PearToPear LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(PEAR_DEBUG "Enable Pear debug output" OFF)
+option(PEAR_BUILD_TESTS "Build tests" OFF)
+option(PEAR_DEBUG "Enable debug logs" ON)
 
 include(FetchContent)
 
 FetchContent_Declare(
     CLI11
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG v2.6.0
+    GIT_TAG v2.4.2
 )
 
-FetchContent_Declare(
-    googletest
-    URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
-)
+FetchContent_MakeAvailable(CLI11)
 
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+if(PEAR_BUILD_TESTS)
+    FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+    )
 
-FetchContent_MakeAvailable(CLI11 googletest)
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 find_package(SQLite3 REQUIRED)
+find_package(Protobuf REQUIRED)
+find_package(gRPC REQUIRED)
 
-# ---- библиотека workspace ----
+set(PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/proto/p2p.proto)
+set(PROTO_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+
+file(MAKE_DIRECTORY ${PROTO_BINARY_DIR})
+
+set(PROTO_SRCS ${PROTO_BINARY_DIR}/p2p.pb.cc)
+set(PROTO_HDRS ${PROTO_BINARY_DIR}/p2p.pb.h)
+set(GRPC_SRCS ${PROTO_BINARY_DIR}/p2p.grpc.pb.cc)
+set(GRPC_HDRS ${PROTO_BINARY_DIR}/p2p.grpc.pb.h)
+
+add_custom_command(
+    OUTPUT
+        ${PROTO_SRCS}
+        ${PROTO_HDRS}
+        ${GRPC_SRCS}
+        ${GRPC_HDRS}
+    COMMAND protobuf::protoc
+    ARGS
+        --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
+        --cpp_out=${PROTO_BINARY_DIR}
+        --grpc_out=${PROTO_BINARY_DIR}
+        --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
+        ${PROTO_FILE}
+    DEPENDS
+        ${PROTO_FILE}
+    VERBATIM
+)
+
+add_library(pear_proto
+    ${PROTO_SRCS}
+    ${GRPC_SRCS}
+)
+
+target_include_directories(pear_proto PUBLIC
+    ${PROTO_BINARY_DIR}
+)
+
+target_link_libraries(pear_proto PUBLIC
+    protobuf::libprotobuf
+    gRPC::grpc++
+)
+
 add_library(pear_fs
     src/pear/fs/workspace.cpp
 )
@@ -36,9 +81,6 @@ target_include_directories(pear_fs PUBLIC
     include
 )
 
-# ---- библиотека БД ----
-# Публичный заголовок: include/pear/db/sqlite_database.hpp
-# Реализует pear::net::DatabaseFacade поверх SQLite.
 add_library(pear_db
     src/pear/db/sqlite.cpp
     src/pear/db/schema.cpp
@@ -47,42 +89,83 @@ add_library(pear_db
 
 target_include_directories(pear_db PUBLIC
     include
+    src
 )
 
 target_link_libraries(pear_db PUBLIC
     SQLite::SQLite3
 )
 
-# ---- CLI приложение ----
+add_library(pear_net
+    src/pear/net/node.cpp
+    src/pear/net/master_service.cpp
+    src/pear/net/remote_client.cpp
+    src/pear/net/storage_service.cpp
+)
+
+target_include_directories(pear_net PUBLIC
+    include
+    src
+    ${PROTO_BINARY_DIR}
+)
+
+target_link_libraries(pear_net PUBLIC
+    pear_db
+    pear_fs
+    pear_proto
+    protobuf::libprotobuf
+    gRPC::grpc++
+)
+
+add_library(pear_demon
+    src/pear/demon/demon.cpp
+)
+
+target_include_directories(pear_demon PUBLIC
+    include
+    src
+)
+
+target_link_libraries(pear_demon PUBLIC
+    pear_fs
+    pear_db
+    pear_net
+)
+
 add_executable(pear
     src/main.cpp
     src/pear/cli/commands.cpp
+    src/pear/cli/command_helpers.cpp
 )
 
 target_include_directories(pear PRIVATE
     include
+    src
+    ${PROTO_BINARY_DIR}
 )
 
 target_link_libraries(pear PRIVATE
+    CLI11::CLI11
     pear_fs
     pear_db
-    CLI11::CLI11
+    pear_net
+    pear_demon
 )
 
 if(PEAR_DEBUG)
     target_compile_definitions(pear PRIVATE PEAR_DEBUG)
 endif()
 
-# ---- тесты ----
-option(PEAR_BUILD_TESTS "Build tests" OFF)
-
 if(PEAR_BUILD_TESTS)
     enable_testing()
 
-    find_package(GTest REQUIRED)
-
     add_executable(workspace_test
         tests/pear/fs/workspace_test.cpp
+    )
+
+    target_include_directories(workspace_test PRIVATE
+        include
+        src
     )
 
     target_link_libraries(workspace_test PRIVATE
