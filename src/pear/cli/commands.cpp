@@ -23,7 +23,7 @@ void sync_with_master(bool verbose) {
     namespace fs = std::filesystem;
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
-    pear::db::SqliteDatabase database(get_database_path(workspace));
+    pear::db::SqliteDatabase database(pear::cli::get_database_path(workspace));
 
     const std::string master_address = database.getMasterAddress();
     const uint64_t device_id = database.getDeviceId();
