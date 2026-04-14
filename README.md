@@ -3,7 +3,7 @@
 <table>
   <tr>
     <td width="320">
-      <img src="assets/logo.png" alt="PearToPear logo" width="280">
+      <img src="docs/logo.png" alt="PearToPear logo" width="280">
     </td>
     <td>
 
