@@ -5,8 +5,21 @@
 
 namespace {
 namespace fs = std::filesystem;
+fs::path normalize_path(const fs::path& path) {
+    std::error_code error;
+    fs::path absolute_path = fs::absolute(path, error);
+    if (error) {
+        throw std::runtime_error("Failed to make path absolute");
+    }
+    fs::path normalized_path = fs::weakly_canonical(absolute_path, error);
+    if (error) {
+        return absolute_path.lexically_normal();
+    }
+    return normalized_path;
+}
+
 std::optional<fs::path> find_peer_root(const fs::path& start_dir) {
-    fs::path current_dir = start_dir;
+    fs::path current_dir = normalize_path(start_dir);
     while (!fs::exists(current_dir / ".peer")) {
         if (current_dir == current_dir.parent_path()) {
             return std::nullopt;
@@ -21,7 +34,7 @@ std::optional<fs::path> find_peer_root(const fs::path& start_dir) {
 namespace pear::storage {
 
 Workspace::Workspace(fs::path root)
-    : m_root(std::move(root)),
+    : m_root(normalize_path(root)),
       m_peer_dir(m_root / ".peer"),
       m_obj_dir(m_peer_dir / "obj"),
       m_meta_dir(m_peer_dir / "meta") {}
