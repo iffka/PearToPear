@@ -4,7 +4,6 @@
 #include <pear/fs/workspace.hpp>
 #include <pear/demon/demon.hpp>
 #include <pear/net/remote_client.hpp>
-#include <pear/net/types.hpp>
 
 #include "command_helpers.hpp"
 
@@ -19,6 +18,65 @@
 namespace {
 
 constexpr const char* Grusha = "🍐 ";
+
+void sync_with_master(bool verbose) {
+    namespace fs = std::filesystem;
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+
+    const std::string master_address = database.getMasterAddress();
+    const uint64_t device_id = database.getDeviceId();
+
+    if (master_address.empty()) {
+        throw std::runtime_error("not connected: master address is empty");
+    }
+    if (device_id == 0) {
+        throw std::runtime_error("not connected: device id is unknown");
+    }
+
+    const uint64_t last_seq_id = database.getLastSeqId();
+    const auto wal_entries = pear::net::RemoteClient::UpdateDB(master_address, last_seq_id, device_id);
+
+    if (!wal_entries.empty()) {
+        database.applyWalEntries(wal_entries);
+    }
+
+    const auto tracked_files = database.getAllFiles();
+    std::unordered_set<std::string> desired_empty_names;
+
+    for (const auto& file : tracked_files) {
+        if (!fs::exists(workspace.get_root() / file.name)) {
+            desired_empty_names.insert(file.name);
+        }
+    }
+
+    for (const auto& entry : fs::directory_iterator(workspace.get_root())) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".empty") {
+            continue;
+        }
+
+        const std::string file_name = entry.path().stem().string();
+
+        if (!desired_empty_names.contains(file_name)) {
+            fs::remove(entry.path());
+        }
+    }
+
+    std::vector<std::string> empty_names(desired_empty_names.begin(), desired_empty_names.end());
+    std::sort(empty_names.begin(), empty_names.end());
+    workspace.create_all_empty_files(empty_names);
+
+    if (!verbose) {
+        return;
+    }
+
+    if (wal_entries.empty()) {
+        std::cout << Grusha << "already up to date\n";
+    } else {
+        std::cout << Grusha << "applied " << wal_entries.size() << " wal entries\n";
+    }
+}
 
 } // namespace
 
@@ -268,58 +326,7 @@ void run_update() {
     std::cout << "[DEBUG] run_update called\n";
 #endif
 
-    namespace fs = std::filesystem;
-
-    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
-    pear::db::SqliteDatabase database(get_database_path(workspace));
-
-    const std::string master_address = database.getMasterAddress();
-    const uint64_t device_id = database.getDeviceId();
-
-    if (master_address.empty()) {
-        throw std::runtime_error("not connected: master address is empty");
-    }
-    if (device_id == 0) {
-        throw std::runtime_error("not connected: device id is unknown");
-    }
-
-    const uint64_t last_seq_id = database.getLastSeqId();
-    const auto wal_entries = pear::net::RemoteClient::UpdateDB(master_address, last_seq_id, device_id);
-
-    if (!wal_entries.empty()) {
-        database.applyWalEntries(wal_entries);
-    }
-
-    const auto tracked_files = database.getAllFiles();
-    std::unordered_set<std::string> desired_empty_names;
-
-    for (const auto& file : tracked_files) {
-        if (!fs::exists(workspace.get_root() / file.name)) {
-            desired_empty_names.insert(file.name);
-        }
-    }
-
-    for (const auto& entry : fs::directory_iterator(workspace.get_root())) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".empty") {
-            continue;
-        }
-
-        const std::string file_name = entry.path().stem().string();
-
-        if (!desired_empty_names.contains(file_name)) {
-            fs::remove(entry.path());
-        }
-    }
-
-    std::vector<std::string> empty_names(desired_empty_names.begin(), desired_empty_names.end());
-    std::sort(empty_names.begin(), empty_names.end());
-    workspace.create_all_empty_files(empty_names);
-
-    if (wal_entries.empty()) {
-        std::cout << Grusha << "already up to date\n";
-    } else {
-        std::cout << Grusha << "applied " << wal_entries.size() << " wal entries\n";
-    }
+    sync_with_master(true);
 }
 
 void run_ls() {
@@ -359,7 +366,7 @@ void run_push() {
         }
     }
 
-    run_update();
+    sync_with_master(false);
 
     pear::db::SqliteDatabase database(get_database_path(workspace));
     const std::string master_address = database.getMasterAddress();
@@ -413,7 +420,7 @@ void run_push() {
         database.unstageFile(file_id);
     }
 
-    run_update();
+    sync_with_master(false);
 
     for (const auto& file_name : pushed_file_names) {
         std::cout << Grusha << "pushed " << file_name << '\n';
@@ -450,7 +457,7 @@ void run_pull(const std::vector<std::string>& targets) {
         }
     }
 
-    run_update();
+    sync_with_master(false);
 
     pear::db::SqliteDatabase database(get_database_path(workspace));
     const uint64_t device_id = database.getDeviceId();

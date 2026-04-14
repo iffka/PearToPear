@@ -1,3 +1,4 @@
 .cache/
 .pear/
 build/
+.vscode/

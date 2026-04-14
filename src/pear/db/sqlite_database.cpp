@@ -417,7 +417,17 @@ uint64_t SqliteDatabase::registerDevice(const std::string& address) {
     auto st = conn_->prepare("INSERT INTO devices(address) VALUES(?1);");
     st.bind(1, address);
     st.run();
-    return static_cast<uint64_t>(sqlite3_last_insert_rowid(conn_->native()));
+
+    uint64_t new_id = static_cast<uint64_t>(sqlite3_last_insert_rowid(conn_->native()));
+
+    WalEntryInfo entry {};
+    entry.op_type = WalOpTypeInfo::kDeviceUpdate;
+    entry.device.device_id = new_id;
+    entry.device.address = address;
+
+    addWalEntry(entry);
+
+    return new_id;
 }
 
 std::string SqliteDatabase::getDeviceAddress(uint64_t device_id) {
