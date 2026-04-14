@@ -11,7 +11,7 @@
 
 namespace {
 
-constexpr const char* GRUSHA = "🍐 ";
+constexpr const char* Grusha = "🍐 ";
 
 } // namespace
 
@@ -25,8 +25,7 @@ void run_init(const std::filesystem::path& workspace_path) {
 
     pear::storage::Workspace workspace = pear::storage::Workspace::init(workspace_path);
     [[maybe_unused]] pear::db::SqliteDatabase database(get_database_path(workspace));
-    std::cout << GRUSHA << "initialized workspace at " << workspace.get_root() << '\n';
-
+    std::cout << Grusha << "initialized workspace at " << workspace.get_root() << '\n';
 }
 
 void run_deinit() {
@@ -63,7 +62,7 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
 #endif
 }
 
-void run_unstage(const std::vector<std::filesystem::path>& paths, bool all) {
+void run_unstage(const std::vector<std::string>& paths, bool all) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_unstage called\n";
     std::cout << "[DEBUG] all: " << std::boolalpha << all << '\n';
@@ -74,6 +73,27 @@ void run_unstage(const std::vector<std::filesystem::path>& paths, bool all) {
         }
     }
 #endif
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+
+    if (all) {
+        database.clearStaging();
+        std::cout << Grusha << "cleared staging\n";
+        return;
+    }
+
+    for (const auto& path_string : paths) {
+        std::filesystem::path path(path_string);
+        std::string file_id = path.filename().string();
+
+        if (file_id.empty()) {
+            continue;
+        }
+
+        database.unstageFile(file_id);
+        std::cout << Grusha << "unstaged " << file_id << '\n';
+    }
 }
 
 void run_update() {
@@ -86,6 +106,17 @@ void run_ls() {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_ls called\n";
 #endif
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+    const auto files = database.getAllFiles();
+    if (files.empty()) {
+        std::cout << Grusha << "workspace is empty\n";
+        return;
+    }
+    for (const auto& file : files) {
+        std::cout << Grusha << file.name << " version:" << file.version << " owner:" << file.owner_device_id << '\n';
+    }
 }
 
 void run_push() {
@@ -108,6 +139,19 @@ void run_status() {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_status called\n";
 #endif
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+    const auto staged_files = database.getStagedFiles();
+
+    if (staged_files.empty()) {
+        std::cout << Grusha << "staging is empty\n";
+        return;
+    }
+
+    for (const auto& file : staged_files) {
+        std::cout << Grusha << file.name << " path:" << file.local_path << '\n';
+    }
 }
 
 } // namespace pear::cli
