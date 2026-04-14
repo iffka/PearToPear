@@ -1,6 +1,9 @@
 #include <pear/demon/demon.hpp>
 #include <pear/fs/workspace.hpp>
+#include <pear/db/sqlite_database.hpp>
+#include <pear/net/node.hpp>
 
+#include <memory>
 #include <cerrno>
 #include <csignal>
 #include <cstring>
@@ -167,13 +170,10 @@ void install_stop_handlers() {
     }
 }
 
-[[noreturn]] void daemon_child_main(const std::filesystem::path& workspace_root, const std::string& repo_id, bool is_main, int status_fd) {
+[[noreturn]] void daemon_child_main(const std::filesystem::path& workspace_root, const std::string& listen_address, bool is_main, int status_fd) {
     std::filesystem::path pid_file;
     bool pid_file_written = false;
     try {
-        (void)repo_id;
-        (void)is_main;
-
         stop_requested = 0;
 
         if (::signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
@@ -205,9 +205,15 @@ void install_stop_handlers() {
         close_all_fds_except(status_fd);
         redirect_stdio_to_devnull();
 
-        pid_file = pear::storage::Workspace::discover(workspace_root).get_meta_dir() / "demon.pid";
+        auto workspace = std::make_shared<pear::storage::Workspace>(pear::storage::Workspace::discover(workspace_root));
+        auto database = std::make_shared<pear::db::SqliteDatabase>(workspace->get_meta_dir() / "peer.db");
+
+        pid_file = workspace->get_meta_dir() / "demon.pid";
         write_pid_file(pid_file, ::getpid());
         pid_file_written = true;
+
+        pear::net::Node node(database, workspace, is_main);
+        node.start(listen_address, !is_main);
 
         send_ok(status_fd);
         ::close(status_fd);
@@ -215,6 +221,8 @@ void install_stop_handlers() {
         while (!stop_requested) {
             ::pause();
         }
+
+        node.stop();
 
         if (pid_file_written) {
             std::filesystem::remove(pid_file);
@@ -293,7 +301,7 @@ void spawn(const std::filesystem::path& workspace_root, const std::string& liste
 
     if (first_pid == 0) {
         ::close(pipe_fds[0]);
-        daemon_child_main(workspace_root, repo_id, is_main, pipe_fds[1]);
+        daemon_child_main(workspace_root, listen_address, is_main, pipe_fds[1]);
     }
 
     ::close(pipe_fds[1]);
