@@ -3,12 +3,11 @@
 
 #include "sqlite.hpp"
 
-// Схема БД MVP — таблицы WAL, files, devices, local_config.
-// Вызывается один раз из конструктора SqliteDatabase.
+// Вызывается один раз из конструктора SqliteDatabase
 
 namespace pear::db {
 
-// Создаёт все нужные таблицы (идемпотентно).
+// Создаёт все нужные таблицы 
 void ensure_schema(Connection& c);
 
 }  // namespace pear::db

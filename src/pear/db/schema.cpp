@@ -7,16 +7,16 @@ namespace {
 // Схема БД на весь MVP.
 //
 // - devices: зарегистрированные устройства сети
-//   (address уникален, device_id auto-assign на стороне ГУ).
+//   (address уникален, device_id auto-assign на стороне ГУ)
 // - files: полная история версий метаданных файлов
-//   (ключ — пара (file_id, version)).
-//   is_deleted хранит материализованное текущее состояние версии.
-// - wal: упорядоченный журнал операций. seq_id назначается ГУ,
-//   ВУ получает записи через UpdateDB и вставляет as-is.
-// - staging_files: локальный staging этого узла.
-//   Это не сетевое состояние, а очередь файлов для будущего push.
+//   (ключ — пара (file_id, version))
+//   is_deleted хранит материализованное текущее состояние версии
+// - seq_id назначается ГУ,
+//   ВУ получает записи через UpdateDB и вставляет as-is
+// - staging_files: локальный staging этого узла
+//   Это не сетевое состояние, а очередь файлов для будущего push
 // - local_config: key/value конфиг этого узла
-//   (master_address, свой device_id).
+//   (master_address, свой device_id)
 constexpr const char* kSchemaSql = R"sql(
 CREATE TABLE IF NOT EXISTS devices(
     device_id INTEGER PRIMARY KEY AUTOINCREMENT,

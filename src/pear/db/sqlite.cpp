@@ -4,7 +4,7 @@ namespace pear::db {
 
 namespace {
 
-// Формирует и кидает DbError с текущим sqlite errmsg.
+// Формирует и кидает DbError с текущим sqlite errmsg
 [[noreturn]] void throw_sqlite(sqlite3* db, const char* prefix) {
     std::string msg = prefix ? (std::string(prefix) + ": ") : "";
     msg += (db ? sqlite3_errmsg(db) : "sqlite error");
@@ -13,14 +13,13 @@ namespace {
 
 }  // namespace
 
-// ---- Connection ----
+// Connection 
 
 void Connection::open(const std::filesystem::path& file) {
     close();
     if (sqlite3_open(file.string().c_str(), &db_) != SQLITE_OK) {
         throw_sqlite(db_, "sqlite3_open");
     }
-    // FK-поддержка включена по умолчанию (на будущее).
     exec("PRAGMA foreign_keys = ON;");
 }
 
@@ -57,7 +56,7 @@ void Connection::rollback() noexcept {
     }
 }
 
-// ---- Statement ----
+// Statement 
 
 void Statement::finalize() noexcept {
     if (stmt_) {

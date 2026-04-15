@@ -195,3 +195,6 @@ pear pull <file>...
 - Корнев Дмитрий
 - Ламаш Станислав
 - Тимофеев Дмитрий
+
+## Misc
+- Презентация: https://docs.google.com/presentation/d/1x6lRDGvlefZQ8AkGxKAqevRZLaS2QIhb6SvRDHYG3wk/edit?usp=sharing
