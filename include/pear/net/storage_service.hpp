@@ -5,21 +5,20 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include <pear/fs/workspace.hpp>
+
 #include "p2p.grpc.pb.h"
-#include "fs_contract.hpp"
 
 namespace pear::net {
 
 class StorageServiceImpl final : public pear::net::Storage::Service {
 public:
-    explicit StorageServiceImpl(std::shared_ptr<FilesystemFacade> fs);
+    explicit StorageServiceImpl(std::shared_ptr<pear::storage::Workspace> workspace);
 
-    grpc::Status DownloadFile(grpc::ServerContext* ctx,
-                              const DownloadRequest* req,
-                              grpc::ServerWriter<FileChunk>* writer) override;
+    grpc::Status DownloadFile( grpc::ServerContext* ctx, const DownloadRequest* req, grpc::ServerWriter<FileChunk>* writer) override;
 
 private:
-    std::shared_ptr<FilesystemFacade> fs_;
+    std::shared_ptr<pear::storage::Workspace> workspace_;
 };
 
 } // namespace pear::net

@@ -1,11 +1,78 @@
 #include <pear/net/remote_client.hpp>
 
-#include <grpcpp/grpcpp.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/security/credentials.h>
+
 #include <fstream>
+#include <stdexcept>
+#include <utility>
 
 #include "p2p.grpc.pb.h"
 
 namespace pear::net {
+
+namespace {
+
+void fillProtoWalEntry(WalEntry* proto_entry, const WalEntryInfo& entry) {
+    proto_entry->set_seq_id(entry.seq_id);
+    proto_entry->set_timestamp(entry.timestamp);
+    proto_entry->set_op_type(static_cast<WalOpType>(entry.op_type));
+
+    if (entry.op_type == WalOpTypeInfo::kFileUpdate) {
+        auto* file_update = proto_entry->mutable_file_update();
+        file_update->set_file_id(entry.file.file_id);
+        file_update->set_name(entry.file.name);
+        file_update->set_version(entry.file.version);
+        file_update->set_owner_device_id(entry.file.owner_device_id);
+        return;
+    }
+
+    if (entry.op_type == WalOpTypeInfo::kFileDelete) {
+        auto* file_delete = proto_entry->mutable_file_delete();
+        file_delete->set_file_id(entry.file_delete.file_id);
+        file_delete->set_version(entry.file_delete.version);
+        file_delete->set_owner_device_id(entry.file_delete.owner_device_id);
+        return;
+    }
+
+    if (entry.op_type == WalOpTypeInfo::kDeviceUpdate) {
+        auto* device_update = proto_entry->mutable_device_update();
+        device_update->set_device_id(entry.device.device_id);
+        device_update->set_address(entry.device.address);
+    }
+}
+
+WalEntryInfo parseProtoWalEntry(const WalEntry& proto_entry) {
+    WalEntryInfo entry;
+
+    entry.seq_id = proto_entry.seq_id();
+    entry.timestamp = proto_entry.timestamp();
+    entry.op_type = static_cast<WalOpTypeInfo>(proto_entry.op_type());
+
+    if (proto_entry.has_file_update()) {
+        entry.file.file_id = proto_entry.file_update().file_id();
+        entry.file.name = proto_entry.file_update().name();
+        entry.file.version = proto_entry.file_update().version();
+        entry.file.owner_device_id = proto_entry.file_update().owner_device_id();
+        return entry;
+    }
+
+    if (proto_entry.has_file_delete()) {
+        entry.file_delete.file_id = proto_entry.file_delete().file_id();
+        entry.file_delete.version = proto_entry.file_delete().version();
+        entry.file_delete.owner_device_id = proto_entry.file_delete().owner_device_id();
+        return entry;
+    }
+
+    if (proto_entry.has_device_update()) {
+        entry.device.device_id = proto_entry.device_update().device_id();
+        entry.device.address = proto_entry.device_update().address();
+    }
+
+    return entry;
+}
+
+} // namespace
 
 uint64_t RemoteClient::RegisterDevice(const std::string& gu_address, const std::string& my_address) {
     auto channel = grpc::CreateChannel(gu_address, grpc::InsecureChannelCredentials());
@@ -21,9 +88,11 @@ uint64_t RemoteClient::RegisterDevice(const std::string& gu_address, const std::
     return resp.assigned_device_id();
 }
 
-std::vector<WalEntryInfo> RemoteClient::UpdateDB(const std::string& gu_address,
-                                                  uint64_t last_seq_id,
-                                                  uint64_t device_id) {
+std::vector<WalEntryInfo> RemoteClient::UpdateDB(
+    const std::string& gu_address,
+    uint64_t last_seq_id,
+    uint64_t device_id
+) {
     auto channel = grpc::CreateChannel(gu_address, grpc::InsecureChannelCredentials());
     auto stub = Master::NewStub(channel);
     UpdateDBRequest req;
@@ -37,50 +106,30 @@ std::vector<WalEntryInfo> RemoteClient::UpdateDB(const std::string& gu_address,
     }
 
     std::vector<WalEntryInfo> entries;
-    for (const auto& e : resp.entries()) {
-        WalEntryInfo info;
-        info.seq_id = e.seq_id();
-        info.timestamp = e.timestamp();
-        info.op_type = static_cast<int>(e.op_type());
-        if (e.has_file_update()) {
-            info.file.file_id = e.file_update().file_id();
-            info.file.name = e.file_update().name();
-            info.file.version = e.file_update().version();
-            info.file.owner_device_id = e.file_update().owner_device_id();
-        } else if (e.has_device_update()) {
-            info.device.device_id = e.device_update().device_id();
-            info.device.address = e.device_update().address();
-        }
-        entries.push_back(info);
+
+    for (const auto& proto_entry : resp.entries()) {
+        entries.push_back(parseProtoWalEntry(proto_entry));
     }
     return entries;
 }
 
-bool RemoteClient::PushWAL(const std::string& gu_address,
-                           uint64_t device_id,
-                           const std::vector<WalEntryInfo>& entries,
-                           std::vector<uint64_t>& out_assigned_seq_ids) {
+bool RemoteClient::PushWAL(
+    const std::string& gu_address,
+    uint64_t device_id,
+    const std::vector<WalEntryInfo>& entries,
+    std::vector<uint64_t>& out_assigned_seq_ids
+) {
     auto channel = grpc::CreateChannel(gu_address, grpc::InsecureChannelCredentials());
     auto stub = Master::NewStub(channel);
     PushWALRequest req;
     req.set_device_id(device_id);
-    for (const auto& e : entries) {
-        auto* pe = req.add_entries();
-        pe->set_seq_id(0);
-        pe->set_timestamp(e.timestamp);
-        pe->set_op_type(static_cast<WalOpType>(e.op_type));
-        if (e.op_type == 0) {
-            auto* fu = pe->mutable_file_update();
-            fu->set_file_id(e.file.file_id);
-            fu->set_name(e.file.name);
-            fu->set_version(e.file.version);
-            fu->set_owner_device_id(e.file.owner_device_id);
-        } else if (e.op_type == 1) {
-            auto* du = pe->mutable_device_update();
-            du->set_device_id(e.device.device_id);
-            du->set_address(e.device.address);
-        }
+
+    for (const auto& entry : entries) {
+        auto* proto_entry = req.add_entries();
+        fillProtoWalEntry(proto_entry, entry);
+        proto_entry->set_seq_id(0);
     }
+
     PushWALResponse resp;
     grpc::ClientContext ctx;
     grpc::Status status = stub->PushWAL(&ctx, req, &resp);
@@ -94,11 +143,13 @@ bool RemoteClient::PushWAL(const std::string& gu_address,
     return false;
 }
 
-void RemoteClient::DownloadFile(const std::string& vu_address,
-                                const std::string& file_id,
-                                uint64_t version,
-                                uint64_t requester_device_id,
-                                const std::string& destination_path) {
+void RemoteClient::DownloadFile(
+    const std::string& vu_address,
+    const std::string& file_id,
+    uint64_t version,
+    uint64_t requester_device_id,
+    const std::string& destination_path
+) {
     auto channel = grpc::CreateChannel(vu_address, grpc::InsecureChannelCredentials());
     auto stub = Storage::NewStub(channel);
     DownloadRequest req;
@@ -110,7 +161,7 @@ void RemoteClient::DownloadFile(const std::string& vu_address,
     FileChunk chunk;
     std::ofstream out(destination_path, std::ios::binary);
     while (reader->Read(&chunk)) {
-        out.write(chunk.data().data(), chunk.data().size());
+        out.write(chunk.data().data(), static_cast<std::streamsize>(chunk.data().size()));
     }
     grpc::Status status = reader->Finish();
     if (!status.ok()) {

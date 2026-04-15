@@ -5,8 +5,21 @@
 
 namespace {
 namespace fs = std::filesystem;
+fs::path normalize_path(const fs::path& path) {
+    std::error_code error;
+    fs::path absolute_path = fs::absolute(path, error);
+    if (error) {
+        throw std::runtime_error("Failed to make path absolute");
+    }
+    fs::path normalized_path = fs::weakly_canonical(absolute_path, error);
+    if (error) {
+        return absolute_path.lexically_normal();
+    }
+    return normalized_path;
+}
+
 std::optional<fs::path> find_peer_root(const fs::path& start_dir) {
-    fs::path current_dir = start_dir;
+    fs::path current_dir = normalize_path(start_dir);
     while (!fs::exists(current_dir / ".peer")) {
         if (current_dir == current_dir.parent_path()) {
             return std::nullopt;
@@ -21,7 +34,7 @@ std::optional<fs::path> find_peer_root(const fs::path& start_dir) {
 namespace pear::storage {
 
 Workspace::Workspace(fs::path root)
-    : m_root(std::move(root)),
+    : m_root(normalize_path(root)),
       m_peer_dir(m_root / ".peer"),
       m_obj_dir(m_peer_dir / "obj"),
       m_meta_dir(m_peer_dir / "meta") {}
@@ -37,11 +50,6 @@ fs::path Workspace::create_empty_file(const std::string& filename) {
         fs::perm_options::replace
     );
     return file_path;
-}
-
-// generate_object_id пока что просто для примера
-std::string Workspace::generate_object_id(const fs::path& path_to_local_file) {
-    return path_to_local_file.filename().string();
 }
 
 // getters:
@@ -75,17 +83,25 @@ Workspace Workspace::discover(const fs::path& start_dir) {
     return Workspace(*root);
 }
 
-fs::path Workspace::create_objectfile(const fs::path& path_to_local_file) {
-    if (!fs::exists(path_to_local_file) || !fs::is_regular_file(path_to_local_file))
+fs::path Workspace::create_objectfile(const std::string& object_name, const fs::path& path_to_source_file) {
+    if (!fs::exists(path_to_source_file) || !fs::is_regular_file(path_to_source_file)) {
         throw std::runtime_error("Invalid file");
-    std::string object_id = generate_object_id(path_to_local_file);
-    fs::path object_path = m_obj_dir / object_id;
-    fs::copy_file(path_to_local_file, object_path);
+    }
+    fs::path object_path = m_obj_dir / object_name;
+    fs::copy_file(path_to_source_file, object_path, fs::copy_options::overwrite_existing);
     return object_path;
 }
 
-void Workspace::delete_objectfile(const std::string& id) {
-    fs::path object_path = m_obj_dir / id;
+fs::path Workspace::get_objectfile_path(const std::string& object_name) const {
+    fs::path object_path = m_obj_dir / object_name;
+    if (!fs::exists(object_path) || !fs::is_regular_file(object_path)) {
+        throw std::runtime_error("Invalid object file");
+    }
+    return object_path;
+}
+
+void Workspace::delete_objectfile(const std::string& object_name) {
+    fs::path object_path = m_obj_dir / object_name;
     if (!fs::exists(object_path) || !fs::is_regular_file(object_path))
         throw std::runtime_error("Invalid object file");
     fs::remove(object_path);
@@ -107,8 +123,8 @@ std::vector<std::string> Workspace::get_list_object_ids() const {
     return object_ids;
 }
 
-bool Workspace::has_objectfile(const std::string& id) const {
-    fs::path object_path = m_obj_dir / id;
+bool Workspace::has_objectfile(const std::string& object_name) const {
+    fs::path object_path = m_obj_dir / object_name;
     return fs::is_regular_file(object_path);
 }
 

@@ -6,7 +6,7 @@
 
 namespace pear::demon {
 
-void spawn(const std::filesystem::path& workspace_root, const std::string& repo_id,  bool is_main);
+void spawn(const std::filesystem::path& workspace_root, const std::string& listen_address, bool is_main);
 
 void kill(const std::filesystem::path& workspace_root);
 

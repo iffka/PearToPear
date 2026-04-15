@@ -22,8 +22,6 @@ private:
     fs::path create_empty_file(const std::string& filename);
 
 public:
-    // generate_object_id пока что просто для примера
-    static std::string generate_object_id(const fs::path& path_to_local_file);
 
     // getters:
     const fs::path& get_root() const;
@@ -34,14 +32,15 @@ public:
     static Workspace init(const fs::path& root = fs::current_path());
     static Workspace discover(const fs::path& start_dir = fs::current_path());
 
-    fs::path create_objectfile(const fs::path& path_to_local_file);
-    void delete_objectfile(const std::string& id);
+    fs::path create_objectfile(const std::string& object_name, const fs::path& path_to_source_file);
+    fs::path get_objectfile_path(const std::string& object_name) const;
+    void delete_objectfile(const std::string& object_name);
 
     void create_all_empty_files(const std::vector<std::string>& names_to_meta_files);
 
     std::vector<std::string> get_list_object_ids() const;
 
-    bool has_objectfile(const std::string& id) const;
+    bool has_objectfile(const std::string& object_name) const;
 };
 
 }  // namespace pear::storage

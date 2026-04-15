@@ -12,7 +12,6 @@ service Storage {
   rpc DownloadFile(DownloadRequest) returns (stream FileChunk);
 }
 
-
 message RegisterRequest {
   string address = 1;
 }
@@ -20,7 +19,9 @@ message RegisterRequest {
 message RegisterResponse {
   bool success = 1;
   uint64 assigned_device_id = 2;
-  repeated WalEntry full_wal = 3;   // полный WAL для инициализации (Можно просто кидать БД, обсудим)
+
+  repeated WalEntry full_wal = 3; // полный WAL для инициализации (Можно просто кидать БД, обсудим)
+
   string error_message = 4;
 }
 
@@ -61,6 +62,7 @@ message FileChunk {
 enum WalOpType {
   FILE_UPDATE = 0;
   DEVICE_UPDATE = 1;
+  FILE_DELETE = 2;
 }
 
 message FileUpdate {
@@ -68,6 +70,12 @@ message FileUpdate {
   string name = 2;
   uint64 version = 3;
   uint64 owner_device_id = 4;
+}
+
+message FileDelete {
+  string file_id = 1;
+  uint64 version = 2;
+  uint64 owner_device_id = 3;
 }
 
 message DeviceUpdate {
@@ -79,8 +87,10 @@ message WalEntry {
   uint64 seq_id = 1;
   uint64 timestamp = 2;
   WalOpType op_type = 3;
+
   oneof data {
     FileUpdate file_update = 4;
     DeviceUpdate device_update = 5;
+    FileDelete file_delete = 6;
   }
 }
