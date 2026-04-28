@@ -32,6 +32,7 @@ endif()
 find_package(SQLite3 REQUIRED)
 find_package(Protobuf REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 pkg_check_modules(GRPC REQUIRED IMPORTED_TARGET grpc++)
 find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
@@ -82,10 +83,15 @@ target_link_libraries(pear_proto PUBLIC
 
 add_library(pear_fs
     src/pear/fs/workspace.cpp
+    src/pear/fs/hash.cpp
 )
 
 target_include_directories(pear_fs PUBLIC
     include
+)
+
+target_link_libraries(pear_fs PRIVATE
+    OpenSSL::Crypto
 )
 
 add_library(pear_db
