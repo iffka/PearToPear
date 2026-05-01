@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <stdexcept>
+#include <algorithm>
 
 namespace {
 namespace fs = std::filesystem;
@@ -27,6 +28,11 @@ std::optional<fs::path> find_peer_root(const fs::path& start_dir) {
         current_dir = current_dir.parent_path();
     }
     return current_dir;
+}
+
+bool is_path_in_peer_dir(const fs::path& relative_path) {
+    auto it = relative_path.begin();
+    return it != relative_path.end() && *it == ".peer";
 }
 
 } // anonymous namespace
@@ -126,6 +132,60 @@ std::vector<std::string> Workspace::get_list_object_ids() const {
 bool Workspace::has_objectfile(const std::string& object_name) const {
     fs::path object_path = m_obj_dir / object_name;
     return fs::is_regular_file(object_path);
+}
+
+std::filesystem::path Workspace::get_relative_path(const std::filesystem::path& path) const {
+    fs::path absolute_path = normalize_path(path);
+    fs::path relative_path = fs::relative(absolute_path, m_root);
+
+    auto it = relative_path.begin();
+    if (relative_path.empty() || it == relative_path.end() || *it == "..") {
+        throw std::runtime_error("path is outside workspace at " + m_root.string());
+    }
+
+    if (is_path_in_peer_dir(relative_path)) {
+        throw std::runtime_error("path points to service directory");
+    }
+
+    return relative_path;
+}
+
+std::vector<std::filesystem::path> Workspace::collect_files(const std::filesystem::path& path) const {
+    std::vector<std::filesystem::path> files;
+    fs::path absolute_path = normalize_path(path);
+
+    get_relative_path(absolute_path);
+
+    if (!fs::exists(absolute_path)) {
+        throw std::runtime_error("path does not exist");
+    }
+
+    if (fs::is_regular_file(absolute_path)) {
+        files.push_back(absolute_path);
+    } else if (fs::is_directory(absolute_path)) {
+        fs::recursive_directory_iterator iterator(absolute_path);
+        fs::recursive_directory_iterator end;
+        while (iterator != end) {
+            fs::path entry_path = normalize_path(iterator->path());
+
+            if (entry_path == m_peer_dir) {
+                iterator.disable_recursion_pending();
+                ++iterator;
+                continue;
+            }
+
+            if (iterator->is_regular_file()) {
+                files.push_back(entry_path);
+            }
+
+            ++iterator;
+        }
+    } else {
+        throw std::runtime_error("path is not a regular file or directory");
+    }
+
+    std::sort(files.begin(), files.end());
+    return files;
 }
 
 }  // namespace pear::storage
