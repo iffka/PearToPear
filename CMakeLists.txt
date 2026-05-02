@@ -151,7 +151,6 @@ target_link_libraries(pear_demon PUBLIC
 add_executable(pear
     src/main.cpp
     src/pear/cli/commands.cpp
-    src/pear/cli/command_helpers.cpp
 )
 
 target_include_directories(pear PRIVATE

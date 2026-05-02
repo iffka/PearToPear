@@ -5,8 +5,6 @@
 #include <pear/demon/demon.hpp>
 #include <pear/net/remote_client.hpp>
 
-#include "command_helpers.hpp"
-
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -18,6 +16,10 @@
 namespace {
 
 constexpr const char* Grusha = "🍐 ";
+
+std::filesystem::path get_database_path(const pear::storage::Workspace& workspace) {
+    return workspace.get_meta_dir() / "peer.db";
+}
 
 void sync_with_master(bool verbose) {
     namespace fs = std::filesystem;
