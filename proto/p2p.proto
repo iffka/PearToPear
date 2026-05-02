@@ -48,9 +48,8 @@ message PushWALResponse {
 }
 
 message DownloadRequest {
-  string file_id = 1;
-  uint64 version = 2;
-  uint64 requester_device_id = 3;
+  string object_hash = 1;
+  uint64 requester_device_id = 2;
 }
 
 message FileChunk {
