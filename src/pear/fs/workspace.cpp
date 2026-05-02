@@ -45,11 +45,22 @@ Workspace::Workspace(fs::path root)
       m_obj_dir(m_peer_dir / "obj"),
       m_meta_dir(m_peer_dir / "meta") {}
 
-fs::path Workspace::create_empty_file(const std::string& filename) {
-    fs::path file_path = m_root / (filename + ".empty");
-    if (fs::exists(file_path))
+fs::path Workspace::create_empty_file(const std::string& relative_path) {
+    fs::path file_path = m_root / (relative_path + ".empty");
+
+    if (fs::exists(file_path)) {
         return file_path;
-    std::ofstream(file_path).close();
+    }
+
+    fs::create_directories(file_path.parent_path());
+
+    std::ofstream file(file_path);
+    if (!file) {
+        throw std::runtime_error("Failed to create empty file: " + file_path.string());
+    }
+
+    file.close();
+
     fs::permissions(
         file_path,
         fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read,
