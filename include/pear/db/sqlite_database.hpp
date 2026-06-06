@@ -40,6 +40,8 @@ class SqliteDatabase {
     // version == 0 -> вернуть актуальную (последнюю не удалённую) версию
     std::optional<pear::net::FileUpdateInfo> getFileInfoByPath(const std::string& path,
                                                                uint64_t version);
+    std::vector<uint64_t> getFileOwnerDeviceIds(const std::string& path,
+                                                const std::string& object_hash);
     std::optional<std::string> getObjectHashByPath(const std::string& path);
 
     uint64_t addWalEntry(const pear::net::WalEntryInfo& entry);

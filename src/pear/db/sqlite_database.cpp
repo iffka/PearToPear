@@ -240,6 +240,27 @@ std::optional<FileUpdateInfo> SqliteDatabase::getFileInfoByPath(const std::strin
     return info;
 }
 
+std::vector<uint64_t> SqliteDatabase::getFileOwnerDeviceIds(
+    const std::string& path, const std::string& object_hash) {
+    std::vector<uint64_t> out;
+    auto st = conn_->prepare(R"sql(
+        SELECT owner_device_id, MAX(version) AS latest_version
+        FROM files
+        WHERE path = ?1 AND object_hash = ?2 AND is_deleted = 0
+        GROUP BY owner_device_id
+        ORDER BY latest_version DESC;
+    )sql");
+
+    st.bind(1, path);
+    st.bind(2, object_hash);
+
+    while (st.step()) {
+        out.push_back(static_cast<uint64_t>(st.col_i64(0)));
+    }
+
+    return out;
+}
+
 std::optional<std::string> SqliteDatabase::getObjectHashByPath(const std::string& path) {
     auto info = getFileInfoByPath(path, 0);
     if (!info) {

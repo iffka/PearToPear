@@ -484,13 +484,32 @@ void run_pull(const std::vector<std::string>& targets) {
         if (workspace.has_objectfile(file.object_hash)) {
             fs::copy_file(workspace.get_objectfile_path(file.object_hash), destination_path, fs::copy_options::overwrite_existing);
         } else {
-            const std::string owner_address = database.getDeviceAddress(file.owner_device_id);
-
-            if (owner_address.empty()) {
-                throw std::runtime_error("owner address is unknown");
+            std::vector<uint64_t> owner_ids = database.getFileOwnerDeviceIds(file.path, file.object_hash);
+            if (std::find(owner_ids.begin(), owner_ids.end(), file.owner_device_id) == owner_ids.end()) {
+                owner_ids.insert(owner_ids.begin(), file.owner_device_id);
             }
 
-            pear::net::RemoteClient::DownloadFile(owner_address, file.object_hash, device_id, destination_path.string());
+            std::string last_error;
+            for (uint64_t owner_id : owner_ids) {
+                const std::string owner_address = database.getDeviceAddress(owner_id);
+
+                if (owner_address.empty()) {
+                    last_error = "owner address is unknown";
+                    continue;
+                }
+
+                try {
+                    pear::net::RemoteClient::DownloadFile(owner_address, file.object_hash, device_id, destination_path.string());
+                    last_error.clear();
+                    break;
+                } catch (const std::exception& error) {
+                    last_error = error.what();
+                }
+            }
+
+            if (!last_error.empty()) {
+                throw std::runtime_error(last_error);
+            }
         }
 
         const fs::path empty_path = workspace.get_root() / (file.path + ".empty");
