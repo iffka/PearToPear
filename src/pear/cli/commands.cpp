@@ -3,7 +3,7 @@
 #include <pear/db/sqlite_database.hpp>
 #include <pear/fs/workspace.hpp>
 #include <pear/demon/demon.hpp>
-#include <pear/net/grpc_direct_transport.hpp>
+#include <pear/net/transport_registry.hpp>
 #include <pear/fs/hash.hpp>
 
 #include "command_utils.hpp"
@@ -83,7 +83,7 @@ void run_connect(const std::string& gu_address, const std::string& listen_addres
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
     pear::db::SqliteDatabase database(get_database_path(workspace));
-    pear::net::GrpcDirectTransport transport;
+    auto& transport = pear::net::transport();
 
     pear::demon::spawn(workspace.get_root(), listen_address, is_main);
     log_info(workspace.get_root(), "connect", "daemon spawn success");
@@ -323,8 +323,8 @@ void run_update() {
 #endif
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
-    pear::net::GrpcDirectTransport transport;
-    sync_with_master(transport, true);
+    auto& transport = pear::net::transport();
+    sync_with_master(true);
     log_info(workspace.get_root(), "update", "workspace metadata updated");
 }
 
@@ -351,7 +351,7 @@ void run_push() {
 #endif
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
-    pear::net::GrpcDirectTransport transport;
+    auto& transport = pear::net::transport();
 
     {
         pear::db::SqliteDatabase database(get_database_path(workspace));
@@ -366,7 +366,7 @@ void run_push() {
         }
     }
 
-    sync_with_master(transport, false);
+    sync_with_master(false);
 
     pear::db::SqliteDatabase database(get_database_path(workspace));
     const std::string master_address = database.getMasterAddress();
@@ -426,7 +426,7 @@ void run_push() {
         database.unstageFile(path);
     }
 
-    sync_with_master(transport, false);
+    sync_with_master(false);
 
     for (const auto& path : pushed_paths) {
         std::cout << Grusha << "pushed " << path << '\n';
@@ -451,7 +451,7 @@ void run_pull(const std::vector<std::string>& targets) {
     namespace fs = std::filesystem;
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
-    pear::net::GrpcDirectTransport transport;
+    auto& transport = pear::net::transport();
 
     {
         pear::db::SqliteDatabase database(get_database_path(workspace));
@@ -468,7 +468,7 @@ void run_pull(const std::vector<std::string>& targets) {
         }
     }
 
-    sync_with_master(transport, false);
+    sync_with_master(false);
 
     pear::db::SqliteDatabase database(get_database_path(workspace));
 

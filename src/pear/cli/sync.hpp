@@ -5,7 +5,6 @@
 
 namespace pear::cli {
 
-void sync_with_master(pear::net::PearTransport& transport, bool verbose);
 void sync_with_master(bool verbose);
 
 } // namespace pear::cli

@@ -5,7 +5,7 @@
 
 #include <pear/db/sqlite_database.hpp>
 #include <pear/fs/workspace.hpp>
-#include <pear/net/grpc_direct_transport.hpp>
+#include <pear/net/transport_registry.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -17,8 +17,9 @@
 
 namespace pear::cli {
 
-void sync_with_master(pear::net::PearTransport& transport, bool verbose) {
+void sync_with_master(bool verbose) {
     namespace fs = std::filesystem;
+    auto& transport = pear::net::transport();
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
     pear::db::SqliteDatabase database(get_database_path(workspace));
@@ -90,11 +91,6 @@ void sync_with_master(pear::net::PearTransport& transport, bool verbose) {
     } else {
         std::cout << Grusha << "applied " << wal_entries.size() << " wal entries\n";
     }
-}
-
-void sync_with_master(bool verbose) {
-    pear::net::GrpcDirectTransport transport;
-    sync_with_master(transport, verbose);
 }
 
 } // namespace pear::cli

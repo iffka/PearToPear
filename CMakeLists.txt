@@ -122,6 +122,7 @@ add_library(pear_net
     src/pear/net/master_service.cpp
     src/pear/net/remote_client.cpp
     src/pear/net/grpc_direct_transport.cpp
+    src/pear/net/transport_registry.cpp
     src/pear/net/storage_service.cpp
 )
 
