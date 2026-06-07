@@ -168,6 +168,13 @@ add_executable(pear
     src/pear/cli/logger.cpp
 )
 
+target_compile_options(pear PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Werror
+)
+
 target_include_directories(pear PRIVATE
     include
     src

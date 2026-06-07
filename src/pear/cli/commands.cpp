@@ -323,7 +323,6 @@ void run_update() {
 #endif
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
-    auto& transport = pear::net::transport();
     sync_with_master(true);
     log_info(workspace.get_root(), "update", "workspace metadata updated");
 }
