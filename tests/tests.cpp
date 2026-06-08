@@ -773,6 +773,108 @@ TEST(net, concurrent_push_same_file_versions) {
 }
 #endif // PEAR_TEST_NET_CONCURRENT_PUSH_SAME_FILE_VERSIONS
 
+#ifdef PEAR_TEST_NET_PULL_KEEPS_ACCESS_AFTER_OWNER_DISCONNECT
+
+TEST(net, pull_keeps_access_after_owner_disconnect) {
+    Repo main;
+    Repo peer1;
+    Repo peer2;
+    Repo peer3;
+
+    const std::string main_address = local_address();
+    const std::string peer1_address = local_address();
+    const std::string peer2_address = local_address();
+    const std::string peer3_address = local_address();
+
+    EXPECT_EQ(main.init().code, 0);
+    EXPECT_EQ(peer1.init().code, 0);
+    EXPECT_EQ(peer2.init().code, 0);
+    EXPECT_EQ(peer3.init().code, 0);
+
+    EXPECT_EQ(main.connect_main(main_address).code, 0);
+    wait_network();
+
+    EXPECT_EQ(peer1.connect(main_address, peer1_address).code, 0);
+    wait_network();
+
+    peer1.write_file("file.txt", "from peer1\n");
+    EXPECT_EQ(peer1.add({"file.txt"}).code, 0);
+    EXPECT_EQ(peer1.push().code, 0);
+
+    EXPECT_EQ(peer2.connect(main_address, peer2_address).code, 0);
+    wait_network();
+    EXPECT_EQ(peer2.update().code, 0);
+    EXPECT_EQ(peer2.pull({"file.txt"}).code, 0);
+    EXPECT_EQ(peer2.read_file("file.txt"), "from peer1\n");
+
+    EXPECT_EQ(peer1.disconnect().code, 0);
+    wait_network();
+
+    EXPECT_EQ(peer3.connect(main_address, peer3_address).code, 0);
+    wait_network();
+    EXPECT_EQ(peer3.update().code, 0);
+    EXPECT_EQ(peer3.pull({"file.txt"}).code, 0);
+    EXPECT_EQ(peer3.read_file("file.txt"), "from peer1\n");
+
+    EXPECT_EQ(peer3.disconnect().code, 0);
+    EXPECT_EQ(peer2.disconnect().code, 0);
+    EXPECT_EQ(main.disconnect().code, 0);
+}
+
+#endif // PEAR_TEST_NET_PULL_KEEPS_ACCESS_AFTER_OWNER_DISCONNECT
+
+#ifdef PEAR_TEST_NET_PULL_NO_SHARE_DOES_NOT_REGISTER_OBJECT_OWNER
+
+TEST(net, pull_no_share_does_not_register_object_owner) {
+    Repo main;
+    Repo peer1;
+    Repo peer2;
+    Repo peer3;
+
+    const std::string main_address = local_address();
+    const std::string peer1_address = local_address();
+    const std::string peer2_address = local_address();
+    const std::string peer3_address = local_address();
+
+    EXPECT_EQ(main.init().code, 0);
+    EXPECT_EQ(peer1.init().code, 0);
+    EXPECT_EQ(peer2.init().code, 0);
+    EXPECT_EQ(peer3.init().code, 0);
+
+    EXPECT_EQ(main.connect_main(main_address).code, 0);
+    wait_network();
+
+    EXPECT_EQ(peer1.connect(main_address, peer1_address).code, 0);
+    wait_network();
+
+    peer1.write_file("file.txt", "from peer1\n");
+    EXPECT_EQ(peer1.add({"file.txt"}).code, 0);
+    EXPECT_EQ(peer1.push().code, 0);
+
+    EXPECT_EQ(peer2.connect(main_address, peer2_address).code, 0);
+    wait_network();
+    EXPECT_EQ(peer2.update().code, 0);
+    EXPECT_EQ(peer2.pull_no_share({"file.txt"}).code, 0);
+    EXPECT_EQ(peer2.read_file("file.txt"), "from peer1\n");
+
+    EXPECT_EQ(peer1.disconnect().code, 0);
+    wait_network();
+
+    EXPECT_EQ(peer3.connect(main_address, peer3_address).code, 0);
+    wait_network();
+    EXPECT_EQ(peer3.update().code, 0);
+
+    const CommandResult pull_result = peer3.pull({"file.txt"});
+    EXPECT_NE(pull_result.code, 0);
+    EXPECT_FALSE(peer3.exists("file.txt"));
+
+    EXPECT_EQ(peer3.disconnect().code, 0);
+    EXPECT_EQ(peer2.disconnect().code, 0);
+    EXPECT_EQ(main.disconnect().code, 0);
+}
+
+#endif // PEAR_TEST_NET_PULL_NO_SHARE_DOES_NOT_REGISTER_OBJECT_OWNER
+
 } // namespace pear::tests
 
 int main(int argc, char** argv) {

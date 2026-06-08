@@ -54,8 +54,10 @@ int main(int argc, char** argv) {
     CLI::App* push = app.add_subcommand("push", "Push staged changes to the Pear workspace");
 
     std::vector<std::string> targets;
+    bool no_share = false;
     CLI::App* pull = app.add_subcommand("pull", "Download files from the Pear workspace");
     pull->add_option("targets", targets, "Files to download")->required();
+    pull->add_flag("--no-share", no_share, "Download without registering this device as object owner");
 
     bool json_status = false;
     CLI::App* status = app.add_subcommand("status", "Show workspace changes");
@@ -89,7 +91,7 @@ int main(int argc, char** argv) {
     update->callback([&](){pear::cli::run_update(); });
     ls->callback([&](){pear::cli::run_ls(json_ls); });
     push->callback([&](){pear::cli::run_push(); });
-    pull->callback([&](){pear::cli::run_pull(targets); });
+    pull->callback([&](){pear::cli::run_pull(targets, no_share); });
     status->callback([&](){pear::cli::run_status(json_status); });
     log->callback([&](){pear::cli::run_log(log_tail); });
 
