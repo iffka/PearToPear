@@ -392,13 +392,11 @@ void run_push() {
                 throw std::runtime_error("staged object does not exist: " + file.object_hash);
             }
 
-            const uint64_t version = database.getNextVersion(file.path);
-
             pear::net::WalEntryInfo entry {};
             entry.op_type = pear::net::WalOpTypeInfo::kFileUpdate;
             entry.file.path = file.path;
             entry.file.object_hash = file.object_hash;
-            entry.file.version = version;
+            entry.file.version = 0;
             entry.file.owner_device_id = device_id;
 
             wal_entries.push_back(entry);
