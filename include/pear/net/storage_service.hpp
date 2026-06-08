@@ -16,6 +16,8 @@ public:
     explicit StorageServiceImpl(std::shared_ptr<pear::storage::Workspace> workspace);
 
     grpc::Status DownloadFile( grpc::ServerContext* ctx, const DownloadRequest* req, grpc::ServerWriter<FileChunk>* writer) override;
+    grpc::Status GetObjectInfo(grpc::ServerContext* ctx, const ObjectInfoRequest* req, ObjectInfoResponse* resp) override;
+    grpc::Status DownloadFileRange(grpc::ServerContext* ctx, const DownloadRangeRequest* req, grpc::ServerWriter<FileChunk>* writer) override;
 
 private:
     std::shared_ptr<pear::storage::Workspace> workspace_;

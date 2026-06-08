@@ -216,4 +216,83 @@ void RemoteClient::DownloadFile(const std::string& vu_address, const std::string
     }
 }
 
+uint64_t RemoteClient::GetObjectSize(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id) {
+    auto channel = grpc::CreateChannel(vu_address, grpc::InsecureChannelCredentials());
+    auto stub = Storage::NewStub(channel);
+
+    ObjectInfoRequest req;
+    req.set_object_hash(object_hash);
+    req.set_requester_device_id(requester_device_id);
+
+    ObjectInfoResponse resp;
+    grpc::ClientContext ctx;
+    grpc::Status status = stub->GetObjectInfo(&ctx, req, &resp);
+
+    if (!status.ok() || !resp.success()) {
+        throw std::runtime_error("GetObjectSize failed: " + resp.error_message());
+    }
+
+    return resp.size();
+}
+
+void RemoteClient::DownloadFileRange(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id, uint64_t offset, uint64_t size, const std::string& destination_path) {
+    namespace fs = std::filesystem;
+
+    const fs::path destination(destination_path);
+    const fs::path temp_path = destination.parent_path() / (destination.filename().string() + ".download." + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+    auto remove_temp_file = [&]() {
+        std::error_code error;
+        fs::remove(temp_path, error);
+    };
+
+    auto channel = grpc::CreateChannel(vu_address, grpc::InsecureChannelCredentials());
+    auto stub = Storage::NewStub(channel);
+
+    DownloadRangeRequest req;
+    req.set_object_hash(object_hash);
+    req.set_requester_device_id(requester_device_id);
+    req.set_offset(offset);
+    req.set_size(size);
+
+    grpc::ClientContext ctx;
+    auto reader = stub->DownloadFileRange(&ctx, req);
+
+    FileChunk chunk;
+    std::ofstream out(temp_path, std::ios::binary);
+    if (!out.is_open()) {
+        throw std::runtime_error("DownloadFileRange failed: failed to open temp file");
+    }
+
+    while (reader->Read(&chunk)) {
+        out.write(chunk.data().data(), static_cast<std::streamsize>(chunk.data().size()));
+        if (!out.good()) {
+            remove_temp_file();
+            throw std::runtime_error("DownloadFileRange failed: failed to write temp file");
+        }
+    }
+
+    out.close();
+    if (!out.good()) {
+        remove_temp_file();
+        throw std::runtime_error("DownloadFileRange failed: failed to close temp file");
+    }
+
+    grpc::Status status = reader->Finish();
+    if (!status.ok()) {
+        remove_temp_file();
+        throw std::runtime_error("DownloadFileRange failed: " + status.error_message());
+    }
+
+    std::error_code remove_error;
+    fs::remove(destination, remove_error);
+
+    std::error_code rename_error;
+    fs::rename(temp_path, destination, rename_error);
+    if (rename_error) {
+        remove_temp_file();
+        throw std::runtime_error("DownloadFileRange failed: failed to move temp file");
+    }
+}
+
 } // namespace pear::net
