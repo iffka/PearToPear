@@ -89,6 +89,7 @@ grpc::Status MasterServiceImpl::RegisterDevice(
     const RegisterRequest* req,
     RegisterResponse* resp
 ) {
+    std::unique_lock<std::mutex> lock(db_mutex_);
     try {
         uint64_t new_id = db_->registerDevice(req->address());
 
@@ -113,6 +114,7 @@ grpc::Status MasterServiceImpl::UpdateDB(
     const UpdateDBRequest* req,
     UpdateDBResponse* resp
 ) {
+    std::unique_lock<std::mutex> lock(db_mutex_);
     try {
         auto entries = db_->getWalEntriesSince(req->last_seq_id());
 
@@ -135,7 +137,7 @@ grpc::Status MasterServiceImpl::PushWAL(
     const PushWALRequest* req,
     PushWALResponse* resp
 ) {
-    std::lock_guard<std::mutex> lock(wal_mutex_);
+    std::unique_lock<std::mutex> lock(db_mutex_);
     try {
         for (int i = 0; i < req->entries_size(); ++i) {
             const auto& proto_entry = req->entries(i);

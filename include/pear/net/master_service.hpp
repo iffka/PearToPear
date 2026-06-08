@@ -22,7 +22,7 @@ public:
 
 private:
     std::shared_ptr<pear::db::SqliteDatabase> db_;
-    std::mutex wal_mutex_;
+    std::mutex db_mutex_;
 };
 
 } // namespace pear::net
