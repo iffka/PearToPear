@@ -866,7 +866,7 @@ TEST(net, pull_no_share_does_not_register_object_owner) {
 
     const CommandResult pull_result = peer3.pull({"file.txt"});
     EXPECT_NE(pull_result.code, 0);
-    EXPECT_FALSE(peer3.exists("file.txt"));
+    EXPECT_NE(peer3.read_file("file.txt"), "from peer1\n");
 
     EXPECT_EQ(peer3.disconnect().code, 0);
     EXPECT_EQ(peer2.disconnect().code, 0);

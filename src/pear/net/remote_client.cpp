@@ -6,6 +6,8 @@
 #include <fstream>
 #include <stdexcept>
 #include <utility>
+#include <chrono>
+#include <filesystem>
 
 #include "p2p.grpc.pb.h"
 
@@ -157,21 +159,60 @@ bool RemoteClient::PushWAL(
 }
 
 void RemoteClient::DownloadFile(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id, const std::string& destination_path) {
+    namespace fs = std::filesystem;
+
+    const fs::path destination(destination_path);
+    const fs::path temp_path = destination.parent_path() / (destination.filename().string() + ".download." + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+    auto remove_temp_file = [&]() {
+        std::error_code error;
+        fs::remove(temp_path, error);
+    };
+
     auto channel = grpc::CreateChannel(vu_address, grpc::InsecureChannelCredentials());
     auto stub = Storage::NewStub(channel);
+
     DownloadRequest req;
     req.set_object_hash(object_hash);
     req.set_requester_device_id(requester_device_id);
+
     grpc::ClientContext ctx;
     auto reader = stub->DownloadFile(&ctx, req);
+
     FileChunk chunk;
-    std::ofstream out(destination_path, std::ios::binary);
+    std::ofstream out(temp_path, std::ios::binary);
+    if (!out.is_open()) {
+        throw std::runtime_error("DownloadFile failed: failed to open temp file");
+    }
+
     while (reader->Read(&chunk)) {
         out.write(chunk.data().data(), static_cast<std::streamsize>(chunk.data().size()));
+        if (!out.good()) {
+            remove_temp_file();
+            throw std::runtime_error("DownloadFile failed: failed to write temp file");
+        }
     }
+
+    out.close();
+    if (!out.good()) {
+        remove_temp_file();
+        throw std::runtime_error("DownloadFile failed: failed to close temp file");
+    }
+
     grpc::Status status = reader->Finish();
     if (!status.ok()) {
+        remove_temp_file();
         throw std::runtime_error("DownloadFile failed: " + status.error_message());
+    }
+
+    std::error_code remove_error;
+    fs::remove(destination, remove_error);
+
+    std::error_code rename_error;
+    fs::rename(temp_path, destination, rename_error);
+    if (rename_error) {
+        remove_temp_file();
+        throw std::runtime_error("DownloadFile failed: failed to move temp file");
     }
 }
 
