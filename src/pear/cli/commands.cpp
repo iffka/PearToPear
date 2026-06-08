@@ -25,6 +25,41 @@
 
 namespace pear::cli {
 
+namespace {
+
+bool download_object_from_any_owner(pear::db::SqliteDatabase& database, const pear::net::FileUpdateInfo& file, uint64_t device_id, const std::filesystem::path& destination_path) {
+    std::vector<std::string> owner_addresses;
+
+    const std::string primary_owner_address = database.getDeviceAddress(file.owner_device_id);
+    if (!primary_owner_address.empty()) {
+        owner_addresses.push_back(primary_owner_address);
+    }
+
+    for (const auto& owner_address : database.getObjectOwnerAddresses(file.object_hash)) {
+        if (!owner_address.empty() && std::find(owner_addresses.begin(), owner_addresses.end(), owner_address) == owner_addresses.end()) {
+            owner_addresses.push_back(owner_address);
+        }
+    }
+
+    if (owner_addresses.empty()) {
+        throw std::runtime_error("no known owners for object " + file.object_hash);
+    }
+
+    std::string last_error;
+    for (const auto& owner_address : owner_addresses) {
+        try {
+            pear::net::transport().downloadFile(owner_address, file.object_hash, device_id, destination_path.string());
+            return true;
+        } catch (const std::exception& error) {
+            last_error = error.what();
+        }
+    }
+
+    throw std::runtime_error("failed to download object from all owners: " + last_error);
+}
+
+} // namespace
+
 void run_init(const std::filesystem::path& workspace_path) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_init called\n";
@@ -436,7 +471,7 @@ void run_push() {
     }
 }
 
-void run_pull(const std::vector<std::string>& targets, [[maybe_unused]]bool no_share) {
+void run_pull(const std::vector<std::string>& targets, bool no_share) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_pull called\n";
 
@@ -485,13 +520,8 @@ void run_pull(const std::vector<std::string>& targets, [[maybe_unused]]bool no_s
         if (workspace.has_objectfile(file.object_hash)) {
             fs::copy_file(workspace.get_objectfile_path(file.object_hash), destination_path, fs::copy_options::overwrite_existing);
         } else {
-            const std::string owner_address = database.getDeviceAddress(file.owner_device_id);
-
-            if (owner_address.empty()) {
-                throw std::runtime_error("owner address is unknown");
-            }
-
-            transport.downloadFile(owner_address, file.object_hash, device_id, destination_path.string());
+            download_object_from_any_owner(database, file, device_id, destination_path);
+            workspace.create_objectfile(file.object_hash, destination_path);
         }
 
         const fs::path empty_path = workspace.get_root() / (file.path + ".empty");
@@ -499,8 +529,24 @@ void run_pull(const std::vector<std::string>& targets, [[maybe_unused]]bool no_s
             fs::remove(empty_path);
         }
 
-        std::cout << Grusha << "pulled " << file.path << '\n';
-        log_info(workspace.get_root(), "pull", "pulled " + file.path);
+        if (!no_share && !database.hasObjectOwner(file.object_hash, device_id)) {
+            pear::net::WalEntryInfo entry {};
+            entry.op_type = pear::net::WalOpTypeInfo::kObjectOwnerUpdate;
+            entry.object_owner.object_hash = file.object_hash;
+            entry.object_owner.owner_device_id = device_id;
+
+            std::vector<pear::net::WalEntryInfo> wal_entries;
+            wal_entries.push_back(entry);
+
+            std::vector<uint64_t> assigned_seq_ids;
+            const std::string master_address = database.getMasterAddress();
+
+            if (!transport.pushWAL(master_address, device_id, wal_entries, assigned_seq_ids)) {
+                std::cerr << Grusha << "warning: failed to register object owner\n";
+            } else {
+                sync_with_master(false);
+            }
+        }
     };
 
     for (const auto& target : targets) {
