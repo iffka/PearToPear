@@ -212,6 +212,7 @@ if(PEAR_BUILD_TESTS)
     target_link_libraries(tests PRIVATE
         GTest::gtest
         nlohmann_json::nlohmann_json
+        pear_db
     )
 
     add_dependencies(tests pear)

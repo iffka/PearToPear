@@ -3,6 +3,8 @@
 
 #include <iostream>
 #include <algorithm>
+#include <atomic>
+#include <future>
 
 namespace pear::tests {
 
@@ -694,6 +696,82 @@ TEST(net, repeated_update_pull_is_idempotent) {
 }
 
 #endif // PEAR_TEST_NET_REPEATED_UPDATE_PULL_IS_IDEMPOTENT
+
+#ifdef PEAR_TEST_NET_CONCURRENT_PUSH_SAME_FILE_VERSIONS
+TEST(net, concurrent_push_same_file_versions) {
+    for (int iteration = 0; iteration < 20; ++iteration) {
+        SCOPED_TRACE("iteration = " + std::to_string(iteration));
+        Repo main;
+        Repo peer1;
+        Repo peer2;
+
+        const std::string main_address = local_address();
+        const std::string peer1_address = local_address();
+        const std::string peer2_address = local_address();
+
+        EXPECT_EQ(main.init().code, 0);
+        EXPECT_EQ(peer1.init().code, 0);
+        EXPECT_EQ(peer2.init().code, 0);
+
+        EXPECT_EQ(main.connect_main(main_address).code, 0);
+        wait_network();
+
+        EXPECT_EQ(peer1.connect(main_address, peer1_address).code, 0);
+        wait_network();
+
+        EXPECT_EQ(peer2.connect(main_address, peer2_address).code, 0);
+        wait_network();
+
+        main.write_file("file.txt", "base\n");
+        EXPECT_EQ(main.add({"file.txt"}).code, 0);
+        EXPECT_EQ(main.push().code, 0);
+
+        EXPECT_EQ(peer1.update().code, 0);
+        EXPECT_EQ(peer1.pull({"file.txt"}).code, 0);
+        EXPECT_EQ(peer1.read_file("file.txt"), "base\n");
+
+        EXPECT_EQ(peer2.update().code, 0);
+        EXPECT_EQ(peer2.pull({"file.txt"}).code, 0);
+        EXPECT_EQ(peer2.read_file("file.txt"), "base\n");
+
+        peer1.write_file("file.txt", "from peer1\n");
+        EXPECT_EQ(peer1.add({"file.txt"}).code, 0);
+
+        peer2.write_file("file.txt", "from peer2\n");
+        EXPECT_EQ(peer2.add({"file.txt"}).code, 0);
+
+        std::atomic<bool> start = false;
+
+        auto peer1_push = std::async(std::launch::async, [&]() {
+            while (!start.load()) {
+            }
+            return peer1.push();
+        });
+
+        auto peer2_push = std::async(std::launch::async, [&]() {
+            while (!start.load()) {
+            }
+            return peer2.push();
+        });
+
+        start.store(true);
+
+        const CommandResult peer1_result = peer1_push.get();
+        const CommandResult peer2_result = peer2_push.get();
+
+        EXPECT_EQ(peer1_result.code, 0) << peer1_result.out << peer1_result.err;
+        EXPECT_EQ(peer2_result.code, 0) << peer2_result.out << peer2_result.err;
+
+        EXPECT_EQ(main.update().code, 0);
+
+        EXPECT_EQ(main.file_versions("file.txt"), (std::vector<uint64_t>{1, 2, 3}));
+
+        EXPECT_EQ(peer2.disconnect().code, 0);
+        EXPECT_EQ(peer1.disconnect().code, 0);
+        EXPECT_EQ(main.disconnect().code, 0);
+    }
+}
+#endif // PEAR_TEST_NET_CONCURRENT_PUSH_SAME_FILE_VERSIONS
 
 } // namespace pear::tests
 

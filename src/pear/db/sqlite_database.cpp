@@ -292,6 +292,12 @@ uint64_t SqliteDatabase::addWalEntry(const WalEntryInfo& entry) {
         WalEntryInfo stored_entry = entry;
         stored_entry.seq_id = new_seq_id;
 
+        if (stored_entry.op_type == WalOpTypeInfo::kFileUpdate) {
+            stored_entry.file.version = getNextVersion(stored_entry.file.path);
+        } else if (stored_entry.op_type == WalOpTypeInfo::kFileDelete) {
+            stored_entry.file_delete.version = getNextVersion(stored_entry.file_delete.path);
+        }
+
         auto st = conn_->prepare(R"sql(
             INSERT INTO wal(
                 seq_id,

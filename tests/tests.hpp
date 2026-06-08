@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <pear/db/sqlite.hpp>
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -13,6 +15,7 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+#include <algorithm>
 
 namespace pear::tests {
 
@@ -246,6 +249,27 @@ public:
         }
 
         return ls;
+    }
+
+    std::vector<uint64_t> file_versions(const std::string& path) const {
+        const fs::path database_path = root_ / ".peer" / "meta" / "peer.db";
+
+        pear::db::Connection connection(database_path);
+        auto statement = connection.prepare(R"sql(
+            SELECT version
+            FROM files
+            WHERE path = ?1
+            ORDER BY version ASC;
+        )sql");
+
+        statement.bind(1, path);
+
+        std::vector<uint64_t> versions;
+        while (statement.step()) {
+            versions.push_back(static_cast<uint64_t>(statement.col_i64(0)));
+        }
+
+        return versions;
     }
 
     void write_file(const fs::path& path, std::string_view content) const {
