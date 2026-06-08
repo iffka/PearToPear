@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
     CLI::App* connect = app.add_subcommand("connect", "Connect to a Pear workspace");
     auto* connect_main_opt = connect->add_flag("--main", is_main, "Run as main node");
     auto* connect_gu_opt = connect->add_option("--gu", gu_address, "Main node address ip:port");
-    auto* connect_listen_opt = connect->add_option("--listen", listen_address, "Local listen address ip:port")->required();
+    connect->add_option("--listen", listen_address, "Local listen address ip:port")->required();
 
     connect_main_opt->excludes(connect_gu_opt);
 

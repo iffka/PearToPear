@@ -3,7 +3,7 @@
 #include <pear/db/sqlite_database.hpp>
 #include <pear/fs/workspace.hpp>
 #include <pear/demon/demon.hpp>
-#include <pear/net/remote_client.hpp>
+#include <pear/net/transport_registry.hpp>
 #include <pear/fs/hash.hpp>
 
 #include "command_utils.hpp"
@@ -83,6 +83,7 @@ void run_connect(const std::string& gu_address, const std::string& listen_addres
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
     pear::db::SqliteDatabase database(get_database_path(workspace));
+    auto& transport = pear::net::transport();
 
     pear::demon::spawn(workspace.get_root(), listen_address, is_main);
     log_info(workspace.get_root(), "connect", "daemon spawn success");
@@ -99,8 +100,8 @@ void run_connect(const std::string& gu_address, const std::string& listen_addres
             return;
         }
 
-        uint64_t device_id = pear::net::RemoteClient::RegisterDevice(gu_address, listen_address);
-        std::vector<pear::net::WalEntryInfo> wal_entries = pear::net::RemoteClient::UpdateDB(gu_address, 0, device_id);
+        uint64_t device_id = transport.registerDevice(gu_address, listen_address);
+        std::vector<pear::net::WalEntryInfo> wal_entries = transport.updateDB(gu_address, 0, device_id);
 
         database.applyWalEntries(wal_entries);
         database.setMasterAddress(gu_address);
@@ -349,6 +350,7 @@ void run_push() {
 #endif
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    auto& transport = pear::net::transport();
 
     {
         pear::db::SqliteDatabase database(get_database_path(workspace));
@@ -414,7 +416,7 @@ void run_push() {
     }
 
     std::vector<uint64_t> assigned_seq_ids;
-    if (!pear::net::RemoteClient::PushWAL(master_address, device_id, wal_entries, assigned_seq_ids)) {
+    if (!transport.pushWAL(master_address, device_id, wal_entries, assigned_seq_ids)) {
         log_error(workspace.get_root(), "push", "failed to push WAL to main");
         throw std::runtime_error("failed to push wal to main node");
     }
@@ -448,6 +450,7 @@ void run_pull(const std::vector<std::string>& targets) {
     namespace fs = std::filesystem;
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    auto& transport = pear::net::transport();
 
     {
         pear::db::SqliteDatabase database(get_database_path(workspace));
@@ -490,7 +493,7 @@ void run_pull(const std::vector<std::string>& targets) {
                 throw std::runtime_error("owner address is unknown");
             }
 
-            pear::net::RemoteClient::DownloadFile(owner_address, file.object_hash, device_id, destination_path.string());
+            transport.downloadFile(owner_address, file.object_hash, device_id, destination_path.string());
         }
 
         const fs::path empty_path = workspace.get_root() / (file.path + ".empty");
