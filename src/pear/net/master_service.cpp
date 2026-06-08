@@ -135,6 +135,7 @@ grpc::Status MasterServiceImpl::PushWAL(
     const PushWALRequest* req,
     PushWALResponse* resp
 ) {
+    std::lock_guard<std::mutex> lock(wal_mutex_);
     try {
         for (int i = 0; i < req->entries_size(); ++i) {
             const auto& proto_entry = req->entries(i);

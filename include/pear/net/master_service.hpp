@@ -2,6 +2,7 @@
 #define PEAR_NET_MASTER_SERVICE_HPP_
 
 #include <memory>
+#include <mutex>
 
 #include <grpcpp/grpcpp.h>
 
@@ -21,6 +22,7 @@ public:
 
 private:
     std::shared_ptr<pear::db::SqliteDatabase> db_;
+    std::mutex wal_mutex_;
 };
 
 } // namespace pear::net
