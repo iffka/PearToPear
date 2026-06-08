@@ -436,7 +436,7 @@ void run_push() {
     }
 }
 
-void run_pull(const std::vector<std::string>& targets, bool no_share) {
+void run_pull(const std::vector<std::string>& targets, [[maybe_unused]]bool no_share) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_pull called\n";
 
