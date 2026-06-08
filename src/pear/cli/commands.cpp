@@ -29,6 +29,7 @@ namespace {
 
 bool download_object_from_any_owner(pear::db::SqliteDatabase& database, const pear::net::FileUpdateInfo& file, uint64_t device_id, const std::filesystem::path& destination_path) {
     std::vector<std::string> owner_addresses;
+    namespace fs = std::filesystem;
 
     const std::string primary_owner_address = database.getDeviceAddress(file.owner_device_id);
     if (!primary_owner_address.empty()) {
@@ -52,9 +53,14 @@ bool download_object_from_any_owner(pear::db::SqliteDatabase& database, const pe
             return true;
         } catch (const std::exception& error) {
             last_error = error.what();
+
+            std::error_code cleanup_error;
+            fs::remove(destination_path, cleanup_error);
         }
     }
 
+    std::error_code cleanup_error;
+    fs::remove(destination_path, cleanup_error);
     throw std::runtime_error("failed to download object from all owners: " + last_error);
 }
 

@@ -184,6 +184,12 @@ public:
         return run(root_, args);
     }
 
+    CommandResult pull_no_share(const std::vector<std::string>& targets) const {
+        std::vector<std::string> args = {"pull", "--no-share"};
+        args.insert(args.end(), targets.begin(), targets.end());
+        return run(root_, args);
+    }
+
     CommandResult raw(const std::vector<std::string>& args) const {
         return run(root_, args);
     }
