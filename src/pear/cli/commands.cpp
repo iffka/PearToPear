@@ -527,7 +527,9 @@ void run_pull(const std::vector<std::string>& targets, bool no_share) {
             fs::copy_file(workspace.get_objectfile_path(file.object_hash), destination_path, fs::copy_options::overwrite_existing);
         } else {
             download_object_from_any_owner(database, file, device_id, destination_path);
-            workspace.create_objectfile(file.object_hash, destination_path);
+            if (!no_share) {
+                workspace.create_objectfile(file.object_hash, destination_path);
+            }
         }
 
         const fs::path empty_path = workspace.get_root() / (file.path + ".empty");
