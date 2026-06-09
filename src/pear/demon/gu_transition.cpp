@@ -2,7 +2,11 @@
 
 #include "pear/db/sqlite_database.hpp"
 #include "pear/fs/workspace.hpp"
+#include "pear/net/pear_transport.hpp"
+#include "pear/net/transport_registry.hpp"
 
+#include <algorithm>
+#include <iostream>
 #include <stdexcept>
 
 namespace pear::demon {
@@ -12,53 +16,79 @@ std::filesystem::path get_database_path(const pear::storage::Workspace& workspac
     return workspace.get_meta_dir() / "peer.db";
 }
 
+bool is_better_replica(const pear::net::ReplicaStateInfo& candidate, const pear::net::ReplicaStateInfo& current) {
+    if (candidate.last_seq_id != current.last_seq_id) {
+        return candidate.last_seq_id > current.last_seq_id;
+    }
+
+    if (candidate.vr_state.view_number != current.vr_state.view_number) {
+        return candidate.vr_state.view_number > current.vr_state.view_number;
+    }
+
+    return candidate.device_id < current.device_id;
+}
+
 } // namespace
 
-GuTransitionState get_gu_transition_state(const std::filesystem::path& workspace_root) {
-    const auto workspace = pear::storage::Workspace::discover(workspace_root);
+bool recover_gu_from_replicas(const std::filesystem::path& workspace_root) {
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover(workspace_root);
     pear::db::SqliteDatabase database(get_database_path(workspace));
 
-    GuTransitionState state;
-    state.device_id = database.getDeviceId();
-    state.master_address = database.getMasterAddress();
+    const uint64_t local_device_id = database.getDeviceId();
 
-    if (state.device_id != 0) {
-        state.local_address = database.getDeviceAddress(state.device_id);
+    if (local_device_id == 0) {
+        return false;
     }
 
-    state.is_local_gu = !state.local_address.empty() && state.local_address == state.master_address;
+    pear::net::ReplicaStateInfo best_state;
+    best_state.device_id = local_device_id;
+    best_state.address = database.getDeviceAddress(local_device_id);
+    best_state.vr_state = database.getVrState();
+    best_state.last_seq_id = database.getLastSeqId();
 
-    return state;
-}
-
-void promote_local_node_to_gu(const std::filesystem::path& workspace_root) {
-    const auto workspace = pear::storage::Workspace::discover(workspace_root);
-    pear::db::SqliteDatabase database(get_database_path(workspace));
-
-    const uint64_t device_id = database.getDeviceId();
-
-    if (device_id == 0) {
-        throw std::runtime_error("device id is unknown");
+    if (best_state.address.empty()) {
+        return false;
     }
 
-    const std::string local_address = database.getDeviceAddress(device_id);
+    auto& transport = pear::net::transport();
+    const auto devices = database.getAllDeviceAddresses();
 
-    if (local_address.empty()) {
-        throw std::runtime_error("local device address is unknown");
+    for (const auto& [device_id, address] : devices) {
+        if (address.empty() || address == best_state.address) {
+            continue;
+        }
+
+        try {
+            pear::net::ReplicaStateInfo state = transport.getReplicaState(address, local_device_id);
+
+            if (state.address.empty()) {
+                state.address = address;
+            }
+
+            if (is_better_replica(state, best_state)) {
+                best_state = state;
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "warning: failed to get replica state from " << address << ": " << error.what() << '\n';
+        }
     }
 
-    database.setMasterAddress(local_address);
-}
-
-void switch_to_gu(const std::filesystem::path& workspace_root, const std::string& new_gu_address) {
-    if (new_gu_address.empty()) {
-        throw std::runtime_error("new gu address is empty");
+    if (best_state.address.empty()) {
+        return false;
     }
 
-    const auto workspace = pear::storage::Workspace::discover(workspace_root);
-    pear::db::SqliteDatabase database(get_database_path(workspace));
+    database.setMasterAddress(best_state.address);
 
-    database.setMasterAddress(new_gu_address);
+    pear::net::VrStateInfo local_state = database.getVrState();
+
+    if (best_state.vr_state.view_number >= local_state.view_number) {
+        local_state.view_number = best_state.vr_state.view_number + 1;
+        local_state.last_normal_view = local_state.view_number;
+        local_state.status = pear::net::ReplicaStatusInfo::kReplicaNormal;
+        database.setVrState(local_state);
+    }
+
+    return true;
 }
 
 } // namespace pear::demon

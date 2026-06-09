@@ -775,4 +775,20 @@ bool SqliteDatabase::isObjectReferenced(const std::string& object_hash) {
     return st.col_i64(0) != 0;
 }
 
+std::vector<std::pair<uint64_t, std::string>> SqliteDatabase::getAllDeviceAddresses() {
+    std::vector<std::pair<uint64_t, std::string>> devices;
+
+    auto st = conn_->prepare(R"sql(
+        SELECT device_id, address
+        FROM devices
+        ORDER BY device_id ASC;
+    )sql");
+
+    while (st.step()) {
+        devices.emplace_back(static_cast<uint64_t>(st.col_i64(0)), st.col_text(1));
+    }
+
+    return devices;
+}
+
 }  // namespace pear::db
