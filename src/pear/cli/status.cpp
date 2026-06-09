@@ -158,18 +158,21 @@ StatusInfo collect_status_info(const pear::storage::Workspace& workspace, pear::
 
         const fs::path empty_path = workspace.get_root() / (file.path + ".empty");
         if (local_hash == local_hash_by_path.end() && !fs::exists(empty_path)) {
-            status.missing_paths.push_back(file.path);
+            status.deleted_paths.push_back(file.path);
         }
     }
 
     const auto untracked_paths = find_untracked_paths(local_hash_by_path, staged_by_path, tracked_by_path);
     status.untracked_entries = compress_untracked_paths(workspace, untracked_paths);
 
-    std::sort(status.staged_files.begin(), status.staged_files.end(), [](const auto& lhs, const auto& rhs) { return lhs.path < rhs.path; });
+    std::sort(status.staged_files.begin(), status.staged_files.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.path < rhs.path;
+    });
     std::sort(status.staged_paths.begin(), status.staged_paths.end());
     std::sort(status.modified_paths.begin(), status.modified_paths.end());
     std::sort(status.modified_after_staging_paths.begin(), status.modified_after_staging_paths.end());
     std::sort(status.missing_paths.begin(), status.missing_paths.end());
+    std::sort(status.deleted_paths.begin(), status.deleted_paths.end());
 
     return status;
 }

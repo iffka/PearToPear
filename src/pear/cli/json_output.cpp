@@ -57,6 +57,7 @@ void print_status_json(const StatusInfo& status) {
     result["modified"] = status.modified_paths;
     result["modified_after_staging"] = status.modified_after_staging_paths;
     result["missing"] = status.missing_paths;
+    result["deleted"] = status.deleted_paths;
     result["untracked"] = status.untracked_entries;
 
     std::cout << result.dump(2) << '\n';

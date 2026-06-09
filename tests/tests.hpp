@@ -41,6 +41,7 @@ struct Status {
     std::vector<std::string> modified;
     std::vector<std::string> modified_after_staging;
     std::vector<std::string> missing;
+    std::vector<std::string> deleted;
     std::vector<std::string> untracked;
 };
 
@@ -216,16 +217,22 @@ public:
         }
 
         for (const auto& item : data.at("staged")) {
+            std::string object_hash;
+            if (item.contains("object_hash") && !item.at("object_hash").is_null()) {
+                object_hash = item.at("object_hash").get<std::string>();
+            }
+
             status.staged.push_back({
                 item.at("path").get<std::string>(),
                 item.at("operation").get<std::string>(),
-                item.at("object_hash").get<std::string>()
+                object_hash
             });
         }
 
         status.modified = data.at("modified").get<std::vector<std::string>>();
         status.modified_after_staging = data.at("modified_after_staging").get<std::vector<std::string>>();
         status.missing = data.at("missing").get<std::vector<std::string>>();
+        status.deleted = data.at("deleted").get<std::vector<std::string>>();
         status.untracked = data.at("untracked").get<std::vector<std::string>>();
 
         return status;

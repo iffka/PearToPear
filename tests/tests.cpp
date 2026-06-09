@@ -964,6 +964,165 @@ TEST(net, readonly_file_uses_object_link) {
 
 #endif // PEAR_TEST_NET_READONLY_FILE_USES_OBJECT_LINK
 
+#ifdef PEAR_TEST_STATUS_SHOWS_DELETED_FILE
+
+TEST(status, shows_deleted_file) {
+    Repo repo;
+
+    const std::string address = local_address();
+
+    EXPECT_EQ(repo.init().code, 0);
+    EXPECT_EQ(repo.connect_main(address).code, 0);
+    wait_network();
+
+    repo.write_file("old.txt", "old content\n");
+
+    EXPECT_EQ(repo.add({"old.txt"}).code, 0);
+    EXPECT_EQ(repo.push().code, 0);
+
+    repo.remove_file("old.txt");
+
+    Status status = repo.status();
+
+    EXPECT_TRUE(status.staged.empty());
+    EXPECT_TRUE(status.missing.empty());
+    EXPECT_EQ(status.deleted, std::vector<std::string>({"old.txt"}));
+
+    const CommandResult pretty_status = repo.raw({"status"});
+    EXPECT_EQ(pretty_status.code, 0);
+    EXPECT_NE(pretty_status.out.find("deleted: old.txt"), std::string::npos);
+    EXPECT_EQ(pretty_status.out.find("missing: old.txt"), std::string::npos);
+
+    EXPECT_EQ(repo.add({"old.txt"}).code, 0);
+
+    status = repo.status();
+
+    ASSERT_EQ(status.staged.size(), 1);
+    EXPECT_EQ(status.staged[0].path, "old.txt");
+    EXPECT_EQ(status.staged[0].operation, "delete");
+    EXPECT_TRUE(status.staged[0].object_hash.empty());
+    EXPECT_TRUE(status.deleted.empty());
+    EXPECT_TRUE(status.missing.empty());
+
+    const CommandResult staged_pretty_status = repo.raw({"status"});
+    EXPECT_EQ(staged_pretty_status.code, 0);
+    EXPECT_NE(staged_pretty_status.out.find("deleted: old.txt"), std::string::npos);
+    EXPECT_EQ(staged_pretty_status.out.find("missing: old.txt"), std::string::npos);
+
+    EXPECT_EQ(repo.disconnect().code, 0);
+}
+
+#endif // PEAR_TEST_STATUS_SHOWS_DELETED_FILE
+
+#ifdef PEAR_TEST_STATUS_SHOWS_DELETED_FILE_AND_STAGES_DELETE
+
+TEST(status, shows_deleted_file_and_stages_delete) {
+    Repo repo;
+    const std::string address = local_address();
+
+    EXPECT_EQ(repo.init().code, 0);
+    EXPECT_EQ(repo.connect_main(address).code, 0);
+    wait_network();
+
+    repo.write_file("old.txt", "old content\n");
+    EXPECT_EQ(repo.add({"old.txt"}).code, 0);
+    EXPECT_EQ(repo.push().code, 0);
+
+    repo.remove_file("old.txt");
+
+    Status status = repo.status();
+    EXPECT_EQ(status.deleted, std::vector<std::string>({"old.txt"}));
+    EXPECT_TRUE(status.missing.empty());
+    EXPECT_TRUE(status.staged.empty());
+
+    CommandResult pretty = repo.raw({"status"});
+    EXPECT_NE(pretty.out.find("deleted: old.txt"), std::string::npos);
+    EXPECT_EQ(pretty.out.find("missing: old.txt"), std::string::npos);
+
+    EXPECT_EQ(repo.add({"old.txt"}).code, 0);
+
+    status = repo.status();
+    ASSERT_EQ(status.staged.size(), 1);
+    EXPECT_EQ(status.staged[0].path, "old.txt");
+    EXPECT_EQ(status.staged[0].operation, "delete");
+    EXPECT_TRUE(status.deleted.empty());
+
+    pretty = repo.raw({"status"});
+    EXPECT_NE(pretty.out.find("delete: old.txt"), std::string::npos);
+}
+
+#endif // PEAR_TEST_STATUS_SHOWS_DELETED_FILE_AND_STAGES_DELETE
+
+#ifdef PEAR_TEST_ADD_ALL_STAGES_DELETED_FILE
+
+TEST(add, all_stages_deleted_file) {
+    Repo repo;
+    const std::string address = local_address();
+
+    EXPECT_EQ(repo.init().code, 0);
+    EXPECT_EQ(repo.connect_main(address).code, 0);
+    wait_network();
+
+    repo.write_file("old.txt", "old content\n");
+    EXPECT_EQ(repo.add({"old.txt"}).code, 0);
+    EXPECT_EQ(repo.push().code, 0);
+
+    repo.remove_file("old.txt");
+
+    EXPECT_EQ(repo.raw({"add", "--all"}).code, 0);
+
+    Status status = repo.status();
+    ASSERT_EQ(status.staged.size(), 1);
+    EXPECT_EQ(status.staged[0].path, "old.txt");
+    EXPECT_EQ(status.staged[0].operation, "delete");
+    EXPECT_TRUE(status.deleted.empty());
+}
+
+#endif // PEAR_TEST_ADD_ALL_STAGES_DELETED_FILE
+
+#ifdef PEAR_TEST_CLEANUP_KEEPS_LATEST_VERSIONS_AND_DELETES_UNUSED_OBJECTS
+
+TEST(cleanup, keeps_latest_versions_and_deletes_unused_objects) {
+    Repo repo;
+    const std::string address = local_address();
+
+    EXPECT_EQ(repo.init().code, 0);
+    EXPECT_EQ(repo.connect_main(address).code, 0);
+    wait_network();
+
+    repo.write_file("file.txt", "v1\n");
+    EXPECT_EQ(repo.add({"file.txt"}).code, 0);
+    EXPECT_EQ(repo.push().code, 0);
+    const std::string hash_v1 = object_hash_for(repo.ls(), "file.txt");
+
+    repo.write_file("file.txt", "v2\n");
+    EXPECT_EQ(repo.add({"file.txt"}).code, 0);
+    EXPECT_EQ(repo.push().code, 0);
+    const std::string hash_v2 = object_hash_for(repo.ls(), "file.txt");
+
+    repo.write_file("file.txt", "v3\n");
+    EXPECT_EQ(repo.add({"file.txt"}).code, 0);
+    EXPECT_EQ(repo.push().code, 0);
+    const std::string hash_v3 = object_hash_for(repo.ls(), "file.txt");
+
+    ASSERT_NE(hash_v1, hash_v2);
+    ASSERT_NE(hash_v2, hash_v3);
+
+    EXPECT_TRUE(repo.exists(".peer/obj/" + hash_v1));
+    EXPECT_TRUE(repo.exists(".peer/obj/" + hash_v2));
+    EXPECT_TRUE(repo.exists(".peer/obj/" + hash_v3));
+
+    EXPECT_EQ(repo.raw({"cleanup", "1", "file.txt"}).code, 0);
+
+    EXPECT_FALSE(repo.exists(".peer/obj/" + hash_v1));
+    EXPECT_FALSE(repo.exists(".peer/obj/" + hash_v2));
+    EXPECT_TRUE(repo.exists(".peer/obj/" + hash_v3));
+
+    EXPECT_EQ(repo.read_file("file.txt"), "v3\n");
+}
+
+#endif // PEAR_TEST_CLEANUP_KEEPS_LATEST_VERSIONS_AND_DELETES_UNUSED_OBJECTS
+
 } // namespace pear::tests
 
 int main(int argc, char** argv) {

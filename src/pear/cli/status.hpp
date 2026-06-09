@@ -19,6 +19,7 @@ struct StatusInfo {
     std::vector<std::string> modified_paths;
     std::vector<std::string> modified_after_staging_paths;
     std::vector<std::string> missing_paths;
+    std::vector<std::string> deleted_paths;
     std::vector<std::string> untracked_entries;
 };
 
