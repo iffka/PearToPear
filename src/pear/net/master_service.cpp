@@ -18,6 +18,7 @@ void fillProtoWalEntry(WalEntry* proto_entry, const WalEntryInfo& entry) {
         file_update->set_object_hash(entry.file.object_hash);
         file_update->set_version(entry.file.version);
         file_update->set_owner_device_id(entry.file.owner_device_id);
+        file_update->set_read_only(entry.file.read_only);
         return;
     }
 
@@ -40,6 +41,13 @@ void fillProtoWalEntry(WalEntry* proto_entry, const WalEntryInfo& entry) {
         auto* object_owner_update = proto_entry->mutable_object_owner_update();
         object_owner_update->set_object_hash(entry.object_owner.object_hash);
         object_owner_update->set_owner_device_id(entry.object_owner.owner_device_id);
+        return;
+    }
+
+    if (entry.op_type == WalOpTypeInfo::kObjectOwnerDelete) {
+        auto* object_owner_delete = proto_entry->mutable_object_owner_delete();
+        object_owner_delete->set_object_hash(entry.object_owner.object_hash);
+        object_owner_delete->set_owner_device_id(entry.object_owner.owner_device_id);
     }
 }
 
@@ -55,6 +63,7 @@ WalEntryInfo parseProtoWalEntry(const WalEntry& proto_entry) {
         entry.file.object_hash = proto_entry.file_update().object_hash();
         entry.file.version = proto_entry.file_update().version();
         entry.file.owner_device_id = proto_entry.file_update().owner_device_id();
+        entry.file.read_only = proto_entry.file_update().read_only();
         return entry;
     }
 
@@ -74,6 +83,12 @@ WalEntryInfo parseProtoWalEntry(const WalEntry& proto_entry) {
     if (proto_entry.has_object_owner_update()) {
         entry.object_owner.object_hash = proto_entry.object_owner_update().object_hash();
         entry.object_owner.owner_device_id = proto_entry.object_owner_update().owner_device_id();
+        return entry;
+    }
+
+    if (proto_entry.has_object_owner_delete()) {
+        entry.object_owner.object_hash = proto_entry.object_owner_delete().object_hash();
+        entry.object_owner.owner_device_id = proto_entry.object_owner_delete().owner_device_id();
     }
 
     return entry;

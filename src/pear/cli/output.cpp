@@ -131,7 +131,7 @@ void print_status_info(const StatusInfo& status) {
         std::cout << status.device_id << '\n';
     }
 
-    const bool is_clean = status.staged_paths.empty() && status.modified_paths.empty() && status.modified_after_staging_paths.empty() && status.missing_paths.empty() && status.untracked_entries.empty();
+    const bool is_clean = status.staged_paths.empty() && status.modified_paths.empty() && status.modified_after_staging_paths.empty() && status.missing_paths.empty() && status.deleted_paths.empty() && status.untracked_entries.empty();
 
     if (is_clean) {
         std::cout << '\n' << Grusha << "working tree clean\n";
@@ -148,14 +148,14 @@ void print_status_info(const StatusInfo& status) {
             if (file.operation == "add") {
                 label = "new file";
             } else if (file.operation == "delete") {
-                label = "deleted";
+                label = "delete";
             }
 
             std::cout << " " << Green << label << ": " << file.path << Reset << '\n';
         }
     }
 
-    if (!status.modified_after_staging_paths.empty() || !status.modified_paths.empty() || !status.missing_paths.empty()) {
+    if (!status.modified_after_staging_paths.empty() || !status.modified_paths.empty() || !status.missing_paths.empty() || !status.deleted_paths.empty()) {
         std::cout << '\n' << Grusha << "Changes not staged:\n";
         std::cout << " (use \"pear add <path>...\" to update what will be pushed)\n";
 
@@ -169,6 +169,10 @@ void print_status_info(const StatusInfo& status) {
 
         for (const auto& path : status.missing_paths) {
             std::cout << " " << Yellow << "missing: " << path << Reset << '\n';
+        }
+
+        for (const auto& path : status.deleted_paths) {
+            std::cout << " " << Yellow << "deleted: " << path << Reset << '\n';
         }
     }
 

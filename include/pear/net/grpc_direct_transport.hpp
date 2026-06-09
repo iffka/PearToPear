@@ -13,6 +13,7 @@ public:
     void downloadFile(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, const std::string& destination_path) override;
     uint64_t getObjectSize(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id) override;
     void downloadFileRange(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, uint64_t offset, uint64_t size, const std::string& destination_path) override;
+    bool deleteObject(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id) override;
 };
 
 } // namespace pear::net

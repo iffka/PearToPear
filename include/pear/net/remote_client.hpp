@@ -17,6 +17,7 @@ public:
     static void DownloadFile(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id, const std::string& destination_path);
     static uint64_t GetObjectSize(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id);
     static void DownloadFileRange(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id, uint64_t offset, uint64_t size, const std::string& destination_path);
+    static bool DeleteObject(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id);
 };
 
 } // namespace pear::net

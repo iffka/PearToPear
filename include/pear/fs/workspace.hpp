@@ -34,6 +34,8 @@ public:
 
     fs::path create_objectfile(const std::string& object_name, const fs::path& path_to_source_file);
     fs::path get_objectfile_path(const std::string& object_name) const;
+    void link_objectfile_to_workspace(const std::string& object_name, const fs::path& target_path) const;
+    void copy_objectfile_to_workspace(const std::string& object_name, const fs::path& target_path) const;
     void delete_objectfile(const std::string& object_name);
 
     void create_all_empty_files(const std::vector<std::string>& names_to_meta_files);

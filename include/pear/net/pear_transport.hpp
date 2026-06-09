@@ -19,6 +19,7 @@ public:
     virtual void downloadFile(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, const std::string& destination_path) = 0;
     virtual uint64_t getObjectSize(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id) = 0;
     virtual void downloadFileRange(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, uint64_t offset, uint64_t size, const std::string& destination_path) = 0;
+    virtual bool deleteObject(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id) = 0;
 };
 
 } // namespace pear::net

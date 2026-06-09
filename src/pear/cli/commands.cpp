@@ -25,8 +25,115 @@
 #include <unordered_set>
 #include <atomic>
 #include <mutex>
+#include <set>
 
 namespace pear::cli {
+
+namespace {
+
+struct CleanupResult {
+    uint64_t removed_versions = 0;
+    uint64_t removed_objects = 0;
+    uint64_t busy_objects = 0;
+};
+
+CleanupResult cleanup_versions_and_unused_objects(
+    pear::storage::Workspace& workspace,
+    uint64_t keep_versions,
+    const std::vector<std::string>& cleanup_paths
+) {
+    if (!pear::demon::is_alive(workspace.get_root())) {
+        throw std::runtime_error("local demon is not running");
+    }
+
+    {
+        pear::db::SqliteDatabase database(get_database_path(workspace));
+
+        if (database.getMasterAddress().empty()) {
+            throw std::runtime_error("not connected: master address is empty");
+        }
+
+        if (database.getDeviceId() == 0) {
+            throw std::runtime_error("not connected: device id is unknown");
+        }
+    }
+
+    sync_with_master(false);
+
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+    auto& transport = pear::net::transport();
+
+    const std::string master_address = database.getMasterAddress();
+    const uint64_t device_id = database.getDeviceId();
+    const std::string local_address = database.getDeviceAddress(device_id);
+
+    if (local_address.empty()) {
+        throw std::runtime_error("local device address is unknown");
+    }
+
+    CleanupResult result;
+    result.removed_versions = database.cleanupOldFileVersions(cleanup_paths, keep_versions);
+
+    std::vector<std::string> object_hashes_to_delete;
+
+    if (std::filesystem::exists(workspace.get_obj_dir())) {
+        for (const auto& entry : std::filesystem::directory_iterator(workspace.get_obj_dir())) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+
+            const std::string object_hash = entry.path().filename().string();
+
+            if (!database.isObjectReferenced(object_hash)) {
+                object_hashes_to_delete.push_back(object_hash);
+            }
+        }
+    }
+
+    std::vector<pear::net::WalEntryInfo> owner_delete_entries;
+
+    for (const auto& object_hash : object_hashes_to_delete) {
+        if (!database.hasObjectOwner(object_hash, device_id)) {
+            continue;
+        }
+
+        pear::net::WalEntryInfo entry {};
+        entry.op_type = pear::net::WalOpTypeInfo::kObjectOwnerDelete;
+        entry.object_owner.object_hash = object_hash;
+        entry.object_owner.owner_device_id = device_id;
+        owner_delete_entries.push_back(entry);
+    }
+
+    if (!owner_delete_entries.empty()) {
+        std::vector<uint64_t> assigned_seq_ids;
+
+        if (!transport.pushWAL(master_address, device_id, owner_delete_entries, assigned_seq_ids)) {
+            log_error(workspace.get_root(), "cleanup", "failed to unregister object owners");
+            throw std::runtime_error("failed to unregister object owners");
+        }
+
+        sync_with_master(false);
+    }
+
+    for (const auto& object_hash : object_hashes_to_delete) {
+        try {
+            const bool deleted = transport.deleteObject(local_address, object_hash, device_id);
+
+            if (deleted) {
+                ++result.removed_objects;
+            } else {
+                ++result.busy_objects;
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "warning: failed to delete object " << object_hash << ": " << error.what() << '\n';
+            log_error(workspace.get_root(), "cleanup", "failed to delete object " + object_hash);
+        }
+    }
+
+    return result;
+}
+
+} // namespace
 
 void run_init(const std::filesystem::path& workspace_path) {
 #ifdef PEAR_DEBUG
@@ -152,10 +259,11 @@ void run_disconnect() {
     }
 }
 
-void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
+void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool read_only) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_add called\n";
     std::cout << "[DEBUG] all: " << std::boolalpha << all << '\n';
+    std::cout << "[DEBUG] read_only: " << std::boolalpha << read_only << '\n';
 
     if (!all) {
         for (const auto& path : paths) {
@@ -171,10 +279,25 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
 
     bool had_errors = false;
 
+    auto is_missing_tracked_file = [&](const std::string& relative_path) {
+        const fs::path file_path = workspace.get_root() / relative_path;
+        const fs::path empty_path = workspace.get_root() / (relative_path + ".empty");
+
+        return !fs::exists(file_path) && !fs::exists(empty_path);
+    };
+
+    std::set<std::string> removed_tracked_paths;
+
+    auto mark_removed_tracked_file = [&](const std::string& relative_path) {
+        removed_tracked_paths.insert(relative_path);
+        std::cout << Grusha << "marked local removal " << relative_path << '\n';
+        log_info(workspace.get_root(), "add", "marked local removal " + relative_path);
+    };
+
     auto stage_file = [&](const fs::path& file_path) {
         try {
             if (file_path.extension() == ".empty") {
-                return; 
+                return;
             }
 
             const std::string relative_path = workspace.get_relative_path(file_path).generic_string();
@@ -191,8 +314,12 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
                 workspace.create_objectfile(object_hash, file_path);
             }
 
+            if (read_only) {
+                workspace.link_objectfile_to_workspace(object_hash, file_path);
+            }
+
             const std::string operation = current_object_hash ? "update" : "add";
-            database.stageFile(relative_path, object_hash, file_path.string(), operation);
+            database.stageFile(relative_path, object_hash, file_path.string(), operation, read_only);
 
             std::cout << Grusha << "staged " << relative_path << '\n';
             log_info(workspace.get_root(), "add", "staged " + relative_path);
@@ -203,10 +330,52 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
         }
     };
 
+    auto stage_missing_path = [&](const fs::path& path) {
+        const fs::path relative_path = workspace.get_relative_path(path);
+        const std::string relative_string = relative_path.generic_string();
+
+        if (database.getFileInfoByPath(relative_string, 0)) {
+            const fs::path empty_path = workspace.get_root() / (relative_string + ".empty");
+
+            if (fs::exists(empty_path)) {
+                std::cout << Grusha << "not pulled " << relative_string << '\n';
+                return;
+            }
+
+            mark_removed_tracked_file(relative_string);
+            return;
+        }
+
+        std::string prefix = relative_string;
+        if (!prefix.empty() && prefix.back() != '/') {
+            prefix += '/';
+        }
+
+        bool staged_anything = false;
+        for (const auto& file : database.getAllFiles()) {
+            if (file.path.rfind(prefix, 0) == 0 && is_missing_tracked_file(file.path)) {
+                mark_removed_tracked_file(file.path);
+                staged_anything = true;
+            }
+        }
+
+        if (!staged_anything) {
+            std::cerr << "error: path is not tracked and does not exist: " << relative_string << '\n';
+            log_error(workspace.get_root(), "add", "path is not tracked and does not exist " + relative_string);
+            had_errors = true;
+        }
+    };
+
     auto stage_path = [&](const fs::path& path) {
         try {
-            const auto files = workspace.collect_files(path);
+            const fs::path absolute_path = workspace.get_root() / workspace.get_relative_path(path);
 
+            if (!fs::exists(absolute_path)) {
+                stage_missing_path(path);
+                return;
+            }
+
+            const auto files = workspace.collect_files(absolute_path);
             for (const auto& file_path : files) {
                 stage_file(file_path);
             }
@@ -219,6 +388,12 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
 
     if (all) {
         stage_path(workspace.get_root());
+
+        for (const auto& file : database.getAllFiles()) {
+            if (is_missing_tracked_file(file.path)) {
+                mark_removed_tracked_file(file.path);
+            }
+        }
     } else {
         for (const auto& path : paths) {
             stage_path(path);
@@ -228,6 +403,26 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
     if (had_errors) {
         log_error(workspace.get_root(), "add", "failed to stage some files");
         throw std::runtime_error("failed to stage some files");
+    }
+
+    if (!removed_tracked_paths.empty()) {
+        const std::vector<std::string> cleanup_paths(removed_tracked_paths.begin(), removed_tracked_paths.end());
+
+        const CleanupResult cleanup_result = cleanup_versions_and_unused_objects(workspace, 0, cleanup_paths);
+
+        std::cout << Grusha << "removed " << cleanup_result.removed_versions << " local file versions\n";
+        std::cout << Grusha << "removed " << cleanup_result.removed_objects << " unused objects\n";
+
+        if (cleanup_result.busy_objects != 0) {
+            std::cout << Grusha << "skipped " << cleanup_result.busy_objects << " busy objects\n";
+        }
+
+        log_info(
+            workspace.get_root(),
+            "add",
+            "removed " + std::to_string(cleanup_result.removed_versions) + " local file versions and " +
+                std::to_string(cleanup_result.removed_objects) + " unused objects"
+        );
     }
 }
 
@@ -320,6 +515,210 @@ void run_unstage(const std::vector<std::filesystem::path>& paths, bool all) {
     }
 }
 
+void run_readonly(const std::vector<std::filesystem::path>& paths, bool turn_off) {
+#ifdef PEAR_DEBUG
+    std::cout << "[DEBUG] run_readonly called\n";
+    std::cout << "[DEBUG] turn_off: " << std::boolalpha << turn_off << '\n';
+    for (const auto& path : paths) {
+        std::cout << "[DEBUG] path: " << path << '\n';
+    }
+#endif
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+
+    bool had_errors = false;
+
+    for (const auto& path : paths) {
+        try {
+            const std::filesystem::path local_path = workspace.get_root() / workspace.get_relative_path(path);
+            const std::string relative_path = workspace.get_relative_path(path).generic_string();
+            const auto file_info = database.getFileInfoByPath(relative_path, 0);
+
+            if (!file_info) {
+                std::cerr << "error: file is not tracked: " << relative_path << '\n';
+                log_error(workspace.get_root(), "readonly", "file is not tracked " + relative_path);
+                had_errors = true;
+                continue;
+            }
+
+            if (file_info->read_only && !turn_off) {
+                std::cout << Grusha << "already readonly " << relative_path << '\n';
+                continue;
+            }
+
+            if (!file_info->read_only && turn_off) {
+                std::cout << Grusha << "already normal " << relative_path << '\n';
+                continue;
+            }
+
+            if (!turn_off) {
+                if (!std::filesystem::exists(local_path) || !std::filesystem::is_regular_file(local_path)) {
+                    std::cerr << "error: file does not exist in workspace: " << relative_path << '\n';
+                    log_error(workspace.get_root(), "readonly", "file does not exist in workspace " + relative_path);
+                    had_errors = true;
+                    continue;
+                }
+
+                const std::string current_hash = pear::storage::get_file_hash(local_path);
+                if (current_hash != file_info->object_hash) {
+                    std::cerr << "error: file is modified, use pear add --readonly " << relative_path << '\n';
+                    log_error(workspace.get_root(), "readonly", "file is modified " + relative_path);
+                    had_errors = true;
+                    continue;
+                }
+
+                if (!workspace.has_objectfile(file_info->object_hash)) {
+                    workspace.create_objectfile(file_info->object_hash, local_path);
+                }
+
+                workspace.link_objectfile_to_workspace(file_info->object_hash, local_path);
+                database.stageFile(relative_path, file_info->object_hash, local_path.string(), "update", true);
+
+                std::cout << Grusha << "staged readonly " << relative_path << '\n';
+                log_info(workspace.get_root(), "readonly", "staged readonly " + relative_path);
+            } else {
+                if (workspace.has_objectfile(file_info->object_hash)) {
+                    workspace.copy_objectfile_to_workspace(file_info->object_hash, local_path);
+                } else if (std::filesystem::exists(local_path) && std::filesystem::is_regular_file(local_path)) {
+                    std::filesystem::permissions(local_path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write | std::filesystem::perms::group_read | std::filesystem::perms::others_read, std::filesystem::perm_options::replace);
+                } else {
+                    std::cerr << "error: cannot restore normal file: " << relative_path << '\n';
+                    log_error(workspace.get_root(), "readonly", "cannot restore normal file " + relative_path);
+                    had_errors = true;
+                    continue;
+                }
+
+                database.stageFile(relative_path, file_info->object_hash, local_path.string(), "update", false);
+
+                std::cout << Grusha << "staged readonly off " << relative_path << '\n';
+                log_info(workspace.get_root(), "readonly", "staged readonly off " + relative_path);
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "error: failed to change readonly mode for " << path << ": " << error.what() << '\n';
+            log_error(workspace.get_root(), "readonly", "failed to change readonly mode " + path.string());
+            had_errors = true;
+        }
+    }
+
+    if (had_errors) {
+        log_error(workspace.get_root(), "readonly", "failed to change readonly mode for some files");
+        throw std::runtime_error("failed to change readonly mode for some files");
+    }
+}
+
+void run_cleanup(uint64_t keep_versions, const std::vector<std::filesystem::path>& paths, bool all) {
+#ifdef PEAR_DEBUG
+    std::cout << "[DEBUG] run_cleanup called\n";
+    std::cout << "[DEBUG] keep_versions: " << keep_versions << '\n';
+    std::cout << "[DEBUG] all: " << std::boolalpha << all << '\n';
+#endif
+
+    if (keep_versions == 0) {
+        throw std::runtime_error("keep_versions must be greater than zero");
+    }
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+
+    if (!pear::demon::is_alive(workspace.get_root())) {
+        throw std::runtime_error("local demon is not running");
+    }
+
+    {
+        pear::db::SqliteDatabase database(get_database_path(workspace));
+
+        if (database.getMasterAddress().empty()) {
+            throw std::runtime_error("not connected: master address is empty");
+        }
+
+        if (database.getDeviceId() == 0) {
+            throw std::runtime_error("not connected: device id is unknown");
+        }
+    }
+
+    sync_with_master(false);
+
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+
+    const std::string master_address = database.getMasterAddress();
+    const uint64_t device_id = database.getDeviceId();
+    const std::string local_address = database.getDeviceAddress(device_id);
+
+    if (local_address.empty()) {
+        throw std::runtime_error("local device address is unknown");
+    }
+
+    const std::vector<std::string> known_paths = database.getAllKnownFilePaths();
+    std::set<std::string> selected_paths;
+    bool had_errors = false;
+
+    if (all) {
+        selected_paths.insert(known_paths.begin(), known_paths.end());
+    } else {
+        for (const auto& path : paths) {
+            try {
+                const std::filesystem::path relative_path = workspace.get_relative_path(path);
+                const std::string relative_string = relative_path.generic_string();
+                const std::filesystem::path absolute_path = workspace.get_root() / relative_path;
+
+                if (std::filesystem::exists(absolute_path) && std::filesystem::is_directory(absolute_path)) {
+                    std::string prefix = relative_string;
+                    if (!prefix.empty() && prefix.back() != '/') {
+                        prefix += '/';
+                    }
+
+                    for (const auto& known_path : known_paths) {
+                        if (known_path.rfind(prefix, 0) == 0) {
+                            selected_paths.insert(known_path);
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (std::find(known_paths.begin(), known_paths.end(), relative_string) == known_paths.end()) {
+                    std::cerr << "error: file is not tracked: " << relative_string << '\n';
+                    log_error(workspace.get_root(), "cleanup", "file is not tracked " + relative_string);
+                    had_errors = true;
+                    continue;
+                }
+
+                selected_paths.insert(relative_string);
+            } catch (const std::exception& error) {
+                std::cerr << "error: failed to resolve cleanup path " << path << ": " << error.what() << '\n';
+                log_error(workspace.get_root(), "cleanup", "failed to resolve cleanup path " + path.string());
+                had_errors = true;
+            }
+        }
+    }
+
+    if (had_errors) {
+        throw std::runtime_error("failed to cleanup some paths");
+    }
+
+    if (selected_paths.empty()) {
+        std::cout << Grusha << "nothing to cleanup\n";
+        return;
+    }
+
+    const std::vector<std::string> cleanup_paths(selected_paths.begin(), selected_paths.end());
+    const CleanupResult cleanup_result = cleanup_versions_and_unused_objects(workspace, keep_versions, cleanup_paths);
+
+    std::cout << Grusha << "removed " << cleanup_result.removed_versions << " old file versions\n";
+    std::cout << Grusha << "removed " << cleanup_result.removed_objects << " unused objects\n";
+
+    if (cleanup_result.busy_objects != 0) {
+        std::cout << Grusha << "skipped " << cleanup_result.busy_objects << " busy objects\n";
+    }
+
+    log_info(
+        workspace.get_root(),
+        "cleanup",
+        "removed " + std::to_string(cleanup_result.removed_versions) + " old file versions and " +
+            std::to_string(cleanup_result.removed_objects) + " unused objects"
+    );
+}
+
 void run_update() {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_update called\n";
@@ -401,6 +800,7 @@ void run_push() {
             entry.file.object_hash = file.object_hash;
             entry.file.version = 0;
             entry.file.owner_device_id = device_id;
+            entry.file.read_only = file.read_only;
 
             wal_entries.push_back(entry);
             pushed_paths.push_back(file.path);
@@ -485,12 +885,21 @@ void run_pull(const std::vector<std::string>& targets, bool no_share) {
         const fs::path destination_path = workspace.get_root() / file.path;
         fs::create_directories(destination_path.parent_path());
 
-        if (workspace.has_objectfile(file.object_hash)) {
-            fs::copy_file(workspace.get_objectfile_path(file.object_hash), destination_path, fs::copy_options::overwrite_existing);
+        if (file.read_only) {
+            if (!workspace.has_objectfile(file.object_hash)) {
+                const std::filesystem::path object_path = workspace.get_obj_dir() / file.object_hash;
+                download_object_from_owners(database, file, device_id, object_path);
+            }
+
+            workspace.link_objectfile_to_workspace(file.object_hash, destination_path);
         } else {
-            download_object_from_owners(database, file, device_id, destination_path);
-            if (!no_share) {
-                workspace.create_objectfile(file.object_hash, destination_path);
+            if (workspace.has_objectfile(file.object_hash)) {
+                workspace.copy_objectfile_to_workspace(file.object_hash, destination_path);
+            } else {
+                download_object_from_owners(database, file, device_id, destination_path);
+                if (!no_share) {
+                    workspace.create_objectfile(file.object_hash, destination_path);
+                }
             }
         }
 
