@@ -83,6 +83,7 @@ enum WalOpType {
   DEVICE_UPDATE = 1;
   FILE_DELETE = 2;
   OBJECT_OWNER_UPDATE = 3;
+  OBJECT_OWNER_DELETE = 4;
 }
 
 message FileUpdate {
@@ -119,5 +120,6 @@ message WalEntry {
     DeviceUpdate device_update = 5;
     FileDelete file_delete = 6;
     ObjectOwnerUpdate object_owner_update = 7;
+    ObjectOwnerUpdate object_owner_delete = 8;
   }
 }

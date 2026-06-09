@@ -45,7 +45,7 @@ void bindWalEntryState(Statement& st, const WalEntryInfo& entry) {
         return;
     }
 
-    if (entry.op_type == WalOpTypeInfo::kObjectOwnerUpdate) {
+    if (entry.op_type == WalOpTypeInfo::kObjectOwnerUpdate || entry.op_type == WalOpTypeInfo::kObjectOwnerDelete) {
         st.bind_null(4);
         st.bind(5, entry.object_owner.object_hash);
         st.bind_null(6);
@@ -112,7 +112,7 @@ std::vector<WalEntryInfo> SqliteDatabase::getWalEntriesSince(uint64_t last_seq_i
         } else if (entry.op_type == WalOpTypeInfo::kDeviceUpdate) {
             entry.device.device_id = static_cast<uint64_t>(st.col_i64(8));
             entry.device.address = st.col_text(9);
-        } else if (entry.op_type == WalOpTypeInfo::kObjectOwnerUpdate) {
+        } else if (entry.op_type == WalOpTypeInfo::kObjectOwnerUpdate || entry.op_type == WalOpTypeInfo::kObjectOwnerDelete) {
             entry.object_owner.object_hash = st.col_text(4);
             entry.object_owner.owner_device_id = static_cast<uint64_t>(st.col_i64(6));
         }
@@ -177,6 +177,18 @@ void SqliteDatabase::applyWalEntryToState(const WalEntryInfo& entry) {
         auto st = conn_->prepare(R"sql(
             INSERT OR IGNORE INTO object_owners(object_hash, owner_device_id)
             VALUES(?1, ?2);
+        )sql");
+
+        st.bind(1, entry.object_owner.object_hash);
+        st.bind(2, entry.object_owner.owner_device_id);
+        st.run();
+        return;
+    }
+
+    if (entry.op_type == WalOpTypeInfo::kObjectOwnerDelete) {
+        auto st = conn_->prepare(R"sql(
+            DELETE FROM object_owners
+            WHERE object_hash = ?1 AND owner_device_id = ?2;
         )sql");
 
         st.bind(1, entry.object_owner.object_hash);

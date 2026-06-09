@@ -6,7 +6,7 @@
 
 namespace pear::net {
 
-enum WalOpTypeInfo { kFileUpdate = 0, kDeviceUpdate = 1, kFileDelete = 2, kObjectOwnerUpdate = 3 };
+enum WalOpTypeInfo { kFileUpdate = 0, kDeviceUpdate = 1, kFileDelete = 2, kObjectOwnerUpdate = 3, kObjectOwnerDelete = 4};
 
 // path - логический файл в общем репозитории (relative path от корня workspace)
 // object_hash - конкретная версия содержимого, лежит в .peer/obj/<hash>
