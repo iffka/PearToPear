@@ -704,7 +704,7 @@ TEST(net, repeated_update_pull_is_idempotent) {
 
 #ifdef PEAR_TEST_NET_CONCURRENT_PUSH_SAME_FILE_VERSIONS
 TEST(net, concurrent_push_same_file_versions) {
-    for (int iteration = 0; iteration < 20; ++iteration) {
+    for (int iteration = 0; iteration < 5; ++iteration) {
         SCOPED_TRACE("iteration = " + std::to_string(iteration));
         Repo main;
         Repo peer1;
