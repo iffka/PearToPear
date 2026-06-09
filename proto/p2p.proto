@@ -8,6 +8,12 @@ service Master {
   rpc PushWAL(PushWALRequest) returns (PushWALResponse);
 }
 
+service Replica {
+  rpc Prepare(PrepareRequest) returns (PrepareResponse);
+  rpc Commit(CommitRequest) returns (CommitResponse);
+  rpc GetReplicaState(ReplicaStateRequest) returns (ReplicaStateResponse);
+}
+
 service Storage {
   rpc GetObjectInfo(ObjectInfoRequest) returns (ObjectInfoResponse);
   rpc DownloadFile(DownloadRequest) returns (stream FileChunk);
@@ -22,9 +28,7 @@ message RegisterRequest {
 message RegisterResponse {
   bool success = 1;
   uint64 assigned_device_id = 2;
-
-  repeated WalEntry full_wal = 3; // полный WAL для инициализации (Можно просто кидать БД, обсудим)
-
+  repeated WalEntry full_wal = 3;
   string error_message = 4;
 }
 
@@ -48,6 +52,47 @@ message PushWALResponse {
   bool success = 1;
   repeated uint64 assigned_seq_ids = 2;
   string error_message = 3;
+}
+
+message PrepareRequest {
+  uint64 view_number = 1;
+  uint64 leader_device_id = 2;
+  repeated WalEntry entries = 3;
+  uint64 commit_number = 4;
+}
+
+message PrepareResponse {
+  bool success = 1;
+  uint64 view_number = 2;
+  uint64 last_seq_id = 3;
+  string error_message = 4;
+}
+
+message CommitRequest {
+  uint64 view_number = 1;
+  uint64 leader_device_id = 2;
+  uint64 commit_number = 3;
+}
+
+message CommitResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ReplicaStateRequest {
+  uint64 requester_device_id = 1;
+}
+
+message ReplicaStateResponse {
+  bool success = 1;
+  uint64 device_id = 2;
+  string address = 3;
+  uint64 view_number = 4;
+  uint64 commit_number = 5;
+  uint64 last_normal_view = 6;
+  uint64 replica_status = 7;
+  uint64 last_seq_id = 8;
+  string error_message = 9;
 }
 
 message DownloadRequest {

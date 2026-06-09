@@ -14,6 +14,7 @@ namespace pear::net {
 
 class MasterServiceImpl;
 class StorageServiceImpl;
+class ReplicaServiceImpl;
 
 class Node {
 public:
@@ -34,6 +35,7 @@ private:
     std::unique_ptr<grpc::Server> server_;
     std::unique_ptr<MasterServiceImpl> master_service_;
     std::unique_ptr<StorageServiceImpl> storage_service_;
+    std::unique_ptr<ReplicaServiceImpl> replica_service_;
     std::thread server_thread_;
     bool running_ = false;
 };

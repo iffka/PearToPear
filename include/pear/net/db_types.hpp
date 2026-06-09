@@ -60,6 +60,13 @@ struct VrStateInfo {
     ReplicaStatusInfo status = kReplicaNormal;
 };
 
+struct ReplicaStateInfo {
+    uint64_t device_id = 0;
+    std::string address;
+    VrStateInfo vr_state;
+    uint64_t last_seq_id = 0;
+};
+
 }  // namespace pear::net
 
 #endif  // PEAR_NET_DB_TYPES_HPP_
