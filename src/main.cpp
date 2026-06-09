@@ -55,6 +55,16 @@ int main(int argc, char** argv) {
     readonly->add_option("paths", readonly_paths, "Files to change readonly mode")->required();
     readonly->add_flag("--off", readonly_off, "Turn readonly mode off");
 
+    uint64_t cleanup_keep_versions = 0;
+    bool cleanup_all = false;
+    std::vector<std::filesystem::path> cleanup_paths;
+    CLI::App* cleanup = app.add_subcommand("cleanup", "Remove old file versions");
+    cleanup->add_option("keep_versions", cleanup_keep_versions, "How many latest versions to keep")->required();
+    auto* cleanup_paths_opt = cleanup->add_option("paths", cleanup_paths, "Files or directories to cleanup");
+    auto* cleanup_all_opt = cleanup->add_flag("--all", cleanup_all, "Cleanup all tracked files");
+    cleanup_paths_opt->excludes(cleanup_all_opt);
+    cleanup_all_opt->excludes(cleanup_paths_opt);
+
     CLI::App* update = app.add_subcommand("update", "Update Pear workspace metadata");
 
     bool json_ls = false;
@@ -99,6 +109,17 @@ int main(int argc, char** argv) {
         pear::cli::run_unstage(unstage_paths, unstage_all);
     });
     readonly->callback([&]() { pear::cli::run_readonly(readonly_paths, readonly_off);});
+    cleanup->callback([&]() {
+        if (cleanup_keep_versions == 0) {
+            throw CLI::ValidationError("cleanup", "keep_versions must be greater than zero");
+        }
+
+        if (!cleanup_all && cleanup_paths.empty()) {
+            throw CLI::ValidationError("cleanup", "Specify paths or use --all");
+        }
+
+        pear::cli::run_cleanup(cleanup_keep_versions, cleanup_paths, cleanup_all);
+    });
     update->callback([&](){pear::cli::run_update(); });
     ls->callback([&](){pear::cli::run_ls(json_ls); });
     push->callback([&](){pear::cli::run_push(); });

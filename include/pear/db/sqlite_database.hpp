@@ -48,6 +48,10 @@ class SqliteDatabase {
     uint64_t getNextVersion(const std::string& path);
     std::vector<pear::net::FileUpdateInfo> getAllFiles();
 
+    std::vector<std::string> getAllKnownFilePaths();
+    uint64_t cleanupOldFileVersionsForPath(const std::string& path, uint64_t keep_versions);
+    uint64_t cleanupOldFileVersions(const std::vector<std::string>& paths, uint64_t keep_versions);
+
     void stageFile(const std::string& path, const std::string& object_hash, const std::string& local_path, const std::string& operation = "add", bool read_only = false);
     void unstageFile(const std::string& path);
     std::vector<StagedFileInfo> getStagedFiles();

@@ -15,7 +15,9 @@ void run_disconnect();
 
 void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool read_only);
 void run_unstage(const std::vector<std::filesystem::path>& paths, bool all);
+
 void run_readonly(const std::vector<std::filesystem::path>& paths, bool turn_off);
+void run_cleanup(uint64_t keep_versions, const std::vector<std::filesystem::path>& paths, bool all);
 
 void run_update();
 void run_ls(bool json_format);

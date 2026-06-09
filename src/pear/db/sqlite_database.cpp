@@ -390,6 +390,79 @@ std::vector<FileUpdateInfo> SqliteDatabase::getAllFiles() {
     return out;
 }
 
+std::vector<std::string> SqliteDatabase::getAllKnownFilePaths() {
+    std::vector<std::string> out;
+
+    auto st = conn_->prepare(R"sql(
+        SELECT DISTINCT path
+        FROM files
+        ORDER BY path ASC;
+    )sql");
+
+    while (st.step()) {
+        out.push_back(st.col_text(0));
+    }
+
+    return out;
+}
+
+uint64_t SqliteDatabase::cleanupOldFileVersionsForPath(const std::string& path, uint64_t keep_versions) {
+    std::vector<uint64_t> versions;
+
+    auto select_st = conn_->prepare(R"sql(
+        SELECT version
+        FROM files
+        WHERE path = ?1
+        ORDER BY version DESC;
+    )sql");
+
+    select_st.bind(1, path);
+
+    while (select_st.step()) {
+        versions.push_back(static_cast<uint64_t>(select_st.col_i64(0)));
+    }
+
+    if (versions.size() <= keep_versions) {
+        return 0;
+    }
+
+    uint64_t removed_count = 0;
+
+    for (std::size_t index = keep_versions; index < versions.size(); ++index) {
+        auto delete_st = conn_->prepare(R"sql(
+            DELETE FROM files
+            WHERE path = ?1 AND version = ?2;
+        )sql");
+
+        delete_st.bind(1, path);
+        delete_st.bind(2, versions[index]);
+        delete_st.run();
+
+        ++removed_count;
+    }
+
+    return removed_count;
+}
+
+uint64_t SqliteDatabase::cleanupOldFileVersions(const std::vector<std::string>& paths, uint64_t keep_versions) {
+    uint64_t removed_count = 0;
+
+    conn_->begin();
+
+    try {
+        for (const auto& path : paths) {
+            removed_count += cleanupOldFileVersionsForPath(path, keep_versions);
+        }
+
+        conn_->commit();
+    } catch (...) {
+        conn_->rollback();
+        throw;
+    }
+
+    return removed_count;
+}
+
 void SqliteDatabase::stageFile(const std::string& path, const std::string& object_hash, const std::string& local_path, const std::string& operation, bool read_only) {
     auto st = conn_->prepare(R"sql(
         INSERT INTO staging_files(path, object_hash, local_path, operation, read_only)

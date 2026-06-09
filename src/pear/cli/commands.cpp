@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <atomic>
 #include <mutex>
+#include <set>
 
 namespace pear::cli {
 
@@ -415,6 +416,80 @@ void run_readonly(const std::vector<std::filesystem::path>& paths, bool turn_off
         log_error(workspace.get_root(), "readonly", "failed to change readonly mode for some files");
         throw std::runtime_error("failed to change readonly mode for some files");
     }
+}
+
+void run_cleanup(uint64_t keep_versions, const std::vector<std::filesystem::path>& paths, bool all) {
+#ifdef PEAR_DEBUG
+    std::cout << "[DEBUG] run_cleanup called\n";
+    std::cout << "[DEBUG] keep_versions: " << keep_versions << '\n';
+    std::cout << "[DEBUG] all: " << std::boolalpha << all << '\n';
+#endif
+
+    if (keep_versions == 0) {
+        throw std::runtime_error("keep_versions must be greater than zero");
+    }
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+
+    const std::vector<std::string> known_paths = database.getAllKnownFilePaths();
+    std::set<std::string> selected_paths;
+    bool had_errors = false;
+
+    if (all) {
+        selected_paths.insert(known_paths.begin(), known_paths.end());
+    } else {
+        for (const auto& path : paths) {
+            try {
+                const std::filesystem::path relative_path = workspace.get_relative_path(path);
+                const std::string relative_string = relative_path.generic_string();
+                const std::filesystem::path absolute_path = workspace.get_root() / relative_path;
+
+                if (std::filesystem::exists(absolute_path) && std::filesystem::is_directory(absolute_path)) {
+                    std::string prefix = relative_string;
+                    if (!prefix.empty() && prefix.back() != '/') {
+                        prefix += '/';
+                    }
+
+                    for (const auto& known_path : known_paths) {
+                        if (known_path.rfind(prefix, 0) == 0) {
+                            selected_paths.insert(known_path);
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (std::find(known_paths.begin(), known_paths.end(), relative_string) == known_paths.end()) {
+                    std::cerr << "error: file is not tracked: " << relative_string << '\n';
+                    log_error(workspace.get_root(), "cleanup", "file is not tracked " + relative_string);
+                    had_errors = true;
+                    continue;
+                }
+
+                selected_paths.insert(relative_string);
+            } catch (const std::exception& error) {
+                std::cerr << "error: failed to resolve cleanup path " << path << ": " << error.what() << '\n';
+                log_error(workspace.get_root(), "cleanup", "failed to resolve cleanup path " + path.string());
+                had_errors = true;
+            }
+        }
+    }
+
+    if (had_errors) {
+        throw std::runtime_error("failed to cleanup some paths");
+    }
+
+    if (selected_paths.empty()) {
+        std::cout << Grusha << "nothing to cleanup\n";
+        return;
+    }
+
+    const std::vector<std::string> cleanup_paths(selected_paths.begin(), selected_paths.end());
+    const uint64_t removed_count = database.cleanupOldFileVersions(cleanup_paths, keep_versions);
+
+    std::cout << Grusha << "removed " << removed_count << " old file versions\n";
+    log_info(workspace.get_root(), "cleanup", "removed " + std::to_string(removed_count) + " old file versions");
 }
 
 void run_update() {
