@@ -73,6 +73,10 @@ class SqliteDatabase {
 
     bool isObjectReferenced(const std::string& object_hash);
 
+    pear::net::VrStateInfo getVrState();
+    void setVrState(const pear::net::VrStateInfo& state);
+    void setCommitNumber(uint64_t commit_number);
+
    private:
     void applyWalEntryToState(const pear::net::WalEntryInfo& entry);
 

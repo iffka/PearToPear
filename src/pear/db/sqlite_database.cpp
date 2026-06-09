@@ -12,57 +12,64 @@ using pear::net::FileUpdateInfo;
 using pear::net::ObjectOwnerUpdateInfo;
 using pear::net::WalEntryInfo;
 using pear::net::WalOpTypeInfo;
+using pear::net::ReplicaStatusInfo;
+using pear::net::VrStateInfo;
 
 namespace {
 
 constexpr std::string_view kCfgMasterAddress = "master_address";
 constexpr std::string_view kCfgDeviceId = "device_id";
+constexpr std::string_view kCfgViewNumber = "view_number";
+constexpr std::string_view kCfgCommitNumber = "commit_number";
+constexpr std::string_view kCfgLastNormalView = "last_normal_view";
+constexpr std::string_view kCfgReplicaStatus = "replica_status";
 
 void bindWalEntryState(Statement& st, const WalEntryInfo& entry) {
     st.bind(1, entry.seq_id);
     st.bind(2, entry.timestamp);
-    st.bind(3, static_cast<int>(entry.op_type));
+    st.bind(3, entry.entry_view_number);
+    st.bind(4, static_cast<int>(entry.op_type));
 
     if (entry.op_type == WalOpTypeInfo::kFileUpdate) {
-        st.bind(4, entry.file.path);
-        st.bind(5, entry.file.object_hash);
-        st.bind(6, entry.file.version);
-        st.bind(7, entry.file.owner_device_id);
-        st.bind(8, entry.file.read_only ? 1 : 0);
-        st.bind_null(9);
+        st.bind(5, entry.file.path);
+        st.bind(6, entry.file.object_hash);
+        st.bind(7, entry.file.version);
+        st.bind(8, entry.file.owner_device_id);
+        st.bind(9, entry.file.read_only ? 1 : 0);
         st.bind_null(10);
+        st.bind_null(11);
         return;
     }
 
     if (entry.op_type == WalOpTypeInfo::kFileDelete) {
-        st.bind(4, entry.file_delete.path);
-        st.bind_null(5);
-        st.bind(6, entry.file_delete.version);
-        st.bind(7, entry.file_delete.owner_device_id);
-        st.bind(8, 0);
-        st.bind_null(9);
+        st.bind(5, entry.file_delete.path);
+        st.bind_null(6);
+        st.bind(7, entry.file_delete.version);
+        st.bind(8, entry.file_delete.owner_device_id);
+        st.bind(9, 0);
         st.bind_null(10);
+        st.bind_null(11);
         return;
     }
 
     if (entry.op_type == WalOpTypeInfo::kObjectOwnerUpdate || entry.op_type == WalOpTypeInfo::kObjectOwnerDelete) {
-        st.bind_null(4);
-        st.bind(5, entry.object_owner.object_hash);
-        st.bind_null(6);
-        st.bind(7, entry.object_owner.owner_device_id);
-        st.bind(8, 0);
-        st.bind_null(9);
+        st.bind_null(5);
+        st.bind(6, entry.object_owner.object_hash);
+        st.bind_null(7);
+        st.bind(8, entry.object_owner.owner_device_id);
+        st.bind(9, 0);
         st.bind_null(10);
+        st.bind_null(11);
         return;
     }
 
-    st.bind_null(4);
     st.bind_null(5);
     st.bind_null(6);
     st.bind_null(7);
-    st.bind(8, 0);
-    st.bind(9, entry.device.device_id);
-    st.bind(10, entry.device.address);
+    st.bind_null(8);
+    st.bind(9, 0);
+    st.bind(10, entry.device.device_id);
+    st.bind(11, entry.device.address);
 }
 
 }  // namespace
@@ -80,6 +87,7 @@ std::vector<WalEntryInfo> SqliteDatabase::getWalEntriesSince(uint64_t last_seq_i
         SELECT
             seq_id,
             timestamp,
+            entry_view_number,
             op_type,
             file_path,
             file_object_hash,
@@ -97,24 +105,25 @@ std::vector<WalEntryInfo> SqliteDatabase::getWalEntriesSince(uint64_t last_seq_i
         WalEntryInfo entry;
         entry.seq_id = static_cast<uint64_t>(st.col_i64(0));
         entry.timestamp = static_cast<uint64_t>(st.col_i64(1));
-        entry.op_type = static_cast<WalOpTypeInfo>(st.col_i64(2));
+        entry.entry_view_number = static_cast<uint64_t>(st.col_i64(2));
+        entry.op_type = static_cast<WalOpTypeInfo>(st.col_i64(3));
 
         if (entry.op_type == WalOpTypeInfo::kFileUpdate) {
-            entry.file.path = st.col_text(3);
-            entry.file.object_hash = st.col_text(4);
-            entry.file.version = static_cast<uint64_t>(st.col_i64(5));
-            entry.file.owner_device_id = static_cast<uint64_t>(st.col_i64(6));
-            entry.file.read_only = st.col_i64(7) != 0;
+            entry.file.path = st.col_text(4);
+            entry.file.object_hash = st.col_text(5);
+            entry.file.version = static_cast<uint64_t>(st.col_i64(6));
+            entry.file.owner_device_id = static_cast<uint64_t>(st.col_i64(7));
+            entry.file.read_only = st.col_i64(8) != 0;
         } else if (entry.op_type == WalOpTypeInfo::kFileDelete) {
-            entry.file_delete.path = st.col_text(3);
-            entry.file_delete.version = static_cast<uint64_t>(st.col_i64(5));
-            entry.file_delete.owner_device_id = static_cast<uint64_t>(st.col_i64(6));
+            entry.file_delete.path = st.col_text(4);
+            entry.file_delete.version = static_cast<uint64_t>(st.col_i64(6));
+            entry.file_delete.owner_device_id = static_cast<uint64_t>(st.col_i64(7));
         } else if (entry.op_type == WalOpTypeInfo::kDeviceUpdate) {
-            entry.device.device_id = static_cast<uint64_t>(st.col_i64(8));
-            entry.device.address = st.col_text(9);
+            entry.device.device_id = static_cast<uint64_t>(st.col_i64(9));
+            entry.device.address = st.col_text(10);
         } else if (entry.op_type == WalOpTypeInfo::kObjectOwnerUpdate || entry.op_type == WalOpTypeInfo::kObjectOwnerDelete) {
-            entry.object_owner.object_hash = st.col_text(4);
-            entry.object_owner.owner_device_id = static_cast<uint64_t>(st.col_i64(6));
+            entry.object_owner.object_hash = st.col_text(5);
+            entry.object_owner.owner_device_id = static_cast<uint64_t>(st.col_i64(7));
         }
 
         out.push_back(std::move(entry));
@@ -201,8 +210,8 @@ void SqliteDatabase::applyWalEntryToState(const WalEntryInfo& entry) {
         auto st = conn_->prepare(R"sql(
             INSERT INTO devices(device_id, address)
             VALUES(?1, ?2)
-            ON CONFLICT(device_id) DO UPDATE SET
-                address = excluded.address;
+            ON CONFLICT(device_id) DO UPDATE
+            SET address = excluded.address;
         )sql");
 
         st.bind(1, entry.device.device_id);
@@ -220,6 +229,7 @@ void SqliteDatabase::applyWalEntries(const std::vector<WalEntryInfo>& entries) {
                 INSERT OR IGNORE INTO wal(
                     seq_id,
                     timestamp,
+                    entry_view_number,
                     op_type,
                     file_path,
                     file_object_hash,
@@ -229,7 +239,7 @@ void SqliteDatabase::applyWalEntries(const std::vector<WalEntryInfo>& entries) {
                     device_id,
                     device_address
                 )
-                VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10);
+                VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);
             )sql");
 
             bindWalEntryState(st, entry);
@@ -312,6 +322,7 @@ uint64_t SqliteDatabase::addWalEntry(const WalEntryInfo& entry) {
 
         WalEntryInfo stored_entry = entry;
         stored_entry.seq_id = new_seq_id;
+        stored_entry.entry_view_number = getVrState().view_number;
 
         if (stored_entry.op_type == WalOpTypeInfo::kFileUpdate) {
             stored_entry.file.version = getNextVersion(stored_entry.file.path);
@@ -323,6 +334,7 @@ uint64_t SqliteDatabase::addWalEntry(const WalEntryInfo& entry) {
             INSERT INTO wal(
                 seq_id,
                 timestamp,
+                entry_view_number,
                 op_type,
                 file_path,
                 file_object_hash,
@@ -332,7 +344,7 @@ uint64_t SqliteDatabase::addWalEntry(const WalEntryInfo& entry) {
                 device_id,
                 device_address
             )
-            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10);
+            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);
         )sql");
 
         bindWalEntryState(st, stored_entry);
@@ -666,6 +678,70 @@ uint64_t SqliteDatabase::getDeviceId() {
     } catch (...) {
         return 0;
     }
+}
+
+VrStateInfo SqliteDatabase::getVrState() {
+    auto read_uint64 = [this](std::string_view key) -> uint64_t {
+        auto st = conn_->prepare("SELECT value FROM local_config WHERE key = ?1;");
+        st.bind(1, key);
+
+        if (!st.step()) {
+            return 0;
+        }
+
+        try {
+            return std::stoull(st.col_text(0));
+        } catch (...) {
+            return 0;
+        }
+    };
+
+    VrStateInfo state;
+    state.view_number = read_uint64(kCfgViewNumber);
+    state.commit_number = read_uint64(kCfgCommitNumber);
+    state.last_normal_view = read_uint64(kCfgLastNormalView);
+
+    uint64_t status_value = read_uint64(kCfgReplicaStatus);
+    if (status_value > 2) {
+        status_value = 0;
+    }
+
+    state.status = static_cast<ReplicaStatusInfo>(status_value);
+
+    return state;
+}
+
+void SqliteDatabase::setVrState(const VrStateInfo& state) {
+    auto write_uint64 = [this](std::string_view key, uint64_t value) {
+        auto st = conn_->prepare(R"sql(
+            INSERT INTO local_config(key, value)
+            VALUES(?1, ?2)
+            ON CONFLICT(key) DO UPDATE
+            SET value = excluded.value;
+        )sql");
+
+        st.bind(1, key);
+        st.bind(2, std::to_string(value));
+        st.run();
+    };
+
+    write_uint64(kCfgViewNumber, state.view_number);
+    write_uint64(kCfgCommitNumber, state.commit_number);
+    write_uint64(kCfgLastNormalView, state.last_normal_view);
+    write_uint64(kCfgReplicaStatus, static_cast<uint64_t>(state.status));
+}
+
+void SqliteDatabase::setCommitNumber(uint64_t commit_number) {
+    auto st = conn_->prepare(R"sql(
+        INSERT INTO local_config(key, value)
+        VALUES(?1, ?2)
+        ON CONFLICT(key) DO UPDATE
+        SET value = excluded.value;
+    )sql");
+
+    st.bind(1, kCfgCommitNumber);
+    st.bind(2, std::to_string(commit_number));
+    st.run();
 }
 
 std::vector<std::string> SqliteDatabase::getAllFileStatus() {

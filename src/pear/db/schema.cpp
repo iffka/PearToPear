@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS object_owners(
 CREATE TABLE IF NOT EXISTS wal(
     seq_id INTEGER PRIMARY KEY,
     timestamp INTEGER NOT NULL,
+    entry_view_number INTEGER NOT NULL DEFAULT 0,
     op_type INTEGER NOT NULL, -- 0=FILE_UPDATE, 1=DEVICE_UPDATE, 2=FILE_DELETE
 
     file_path TEXT,

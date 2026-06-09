@@ -126,6 +126,7 @@ message WalEntry {
   uint64 seq_id = 1;
   uint64 timestamp = 2;
   WalOpType op_type = 3;
+  uint64 entry_view_number = 9;
 
   oneof data {
     FileUpdate file_update = 4;
