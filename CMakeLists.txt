@@ -144,6 +144,7 @@ target_link_libraries(pear_net PUBLIC
 
 add_library(pear_demon
     src/pear/demon/demon.cpp
+    src/pear/demon/gu_transition.cpp
 )
 
 target_include_directories(pear_demon PUBLIC
