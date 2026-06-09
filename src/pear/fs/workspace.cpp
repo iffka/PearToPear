@@ -3,6 +3,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <algorithm>
+#include <chrono>
 
 namespace {
 namespace fs = std::filesystem;
@@ -33,6 +34,29 @@ std::optional<fs::path> find_peer_root(const fs::path& start_dir) {
 bool is_path_in_peer_dir(const fs::path& relative_path) {
     auto it = relative_path.begin();
     return it != relative_path.end() && *it == ".peer";
+}
+
+fs::path make_temp_sibling_path(const fs::path& target_path) {
+    return target_path.parent_path() / (target_path.filename().string() + ".pear.tmp." + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+}
+
+void rename_temp_to_target(const fs::path& temp_path, const fs::path& target_path) {
+    std::error_code rename_error;
+    fs::rename(temp_path, target_path, rename_error);
+
+    if (rename_error) {
+        std::error_code remove_error;
+        fs::remove(target_path, remove_error);
+
+        rename_error.clear();
+        fs::rename(temp_path, target_path, rename_error);
+    }
+
+    if (rename_error) {
+        std::error_code cleanup_error;
+        fs::remove(temp_path, cleanup_error);
+        throw std::runtime_error("Failed to replace file: " + target_path.string());
+    }
 }
 
 } // anonymous namespace
@@ -115,6 +139,34 @@ fs::path Workspace::get_objectfile_path(const std::string& object_name) const {
         throw std::runtime_error("Invalid object file");
     }
     return object_path;
+}
+
+void Workspace::link_objectfile_to_workspace(const std::string& object_name, const fs::path& target_path) const {
+    const fs::path object_path = get_objectfile_path(object_name);
+    const fs::path temp_path = make_temp_sibling_path(target_path);
+
+    std::error_code cleanup_error;
+    fs::remove(temp_path, cleanup_error);
+
+    fs::create_directories(target_path.parent_path());
+    fs::create_hard_link(object_path, temp_path);
+    fs::permissions(temp_path, fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read, fs::perm_options::replace);
+
+    rename_temp_to_target(temp_path, target_path);
+}
+
+void Workspace::copy_objectfile_to_workspace(const std::string& object_name, const fs::path& target_path) const {
+    const fs::path object_path = get_objectfile_path(object_name);
+    const fs::path temp_path = make_temp_sibling_path(target_path);
+
+    std::error_code cleanup_error;
+    fs::remove(temp_path, cleanup_error);
+
+    fs::create_directories(target_path.parent_path());
+    fs::copy_file(object_path, temp_path, fs::copy_options::overwrite_existing);
+    fs::permissions(temp_path, fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::others_read, fs::perm_options::replace);
+
+    rename_temp_to_target(temp_path, target_path);
 }
 
 void Workspace::delete_objectfile(const std::string& object_name) {

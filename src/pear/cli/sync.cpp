@@ -5,7 +5,7 @@
 
 #include <pear/db/sqlite_database.hpp>
 #include <pear/fs/workspace.hpp>
-#include <pear/net/remote_client.hpp>
+#include <pear/net/transport_registry.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -19,6 +19,7 @@ namespace pear::cli {
 
 void sync_with_master(bool verbose) {
     namespace fs = std::filesystem;
+    auto& transport = pear::net::transport();
 
     pear::storage::Workspace workspace = pear::storage::Workspace::discover();
     pear::db::SqliteDatabase database(get_database_path(workspace));
@@ -34,7 +35,7 @@ void sync_with_master(bool verbose) {
     }
 
     const uint64_t last_seq_id = database.getLastSeqId();
-    const auto wal_entries = pear::net::RemoteClient::UpdateDB(master_address, last_seq_id, device_id);
+    const auto wal_entries = transport.updateDB(master_address, last_seq_id, device_id);
 
     if (!wal_entries.empty()) {
         database.applyWalEntries(wal_entries);

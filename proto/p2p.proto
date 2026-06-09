@@ -9,7 +9,10 @@ service Master {
 }
 
 service Storage {
+  rpc GetObjectInfo(ObjectInfoRequest) returns (ObjectInfoResponse);
   rpc DownloadFile(DownloadRequest) returns (stream FileChunk);
+  rpc DownloadFileRange(DownloadRangeRequest) returns (stream FileChunk);
+  rpc DeleteObject(DeleteObjectRequest) returns (DeleteObjectResponse);
 }
 
 message RegisterRequest {
@@ -52,6 +55,35 @@ message DownloadRequest {
   uint64 requester_device_id = 2;
 }
 
+message ObjectInfoRequest {
+  string object_hash = 1;
+  uint64 requester_device_id = 2;
+}
+
+message ObjectInfoResponse {
+  bool success = 1;
+  uint64 size = 2;
+  string error_message = 3;
+}
+
+message DownloadRangeRequest {
+  string object_hash = 1;
+  uint64 requester_device_id = 2;
+  uint64 offset = 3;
+  uint64 size = 4;
+}
+
+message DeleteObjectRequest {
+  string object_hash = 1;
+  uint64 requester_device_id = 2;
+}
+
+message DeleteObjectResponse {
+  bool success = 1;
+  bool busy = 2;
+  string error_message = 3;
+}
+
 message FileChunk {
   bytes data = 1;
   uint64 offset = 2;
@@ -63,6 +95,7 @@ enum WalOpType {
   DEVICE_UPDATE = 1;
   FILE_DELETE = 2;
   OBJECT_OWNER_UPDATE = 3;
+  OBJECT_OWNER_DELETE = 4;
 }
 
 message FileUpdate {
@@ -70,6 +103,7 @@ message FileUpdate {
   string object_hash = 2;
   uint64 version = 3;
   uint64 owner_device_id = 4;
+  bool read_only = 5;
 }
 
 message FileDelete {
@@ -98,5 +132,6 @@ message WalEntry {
     DeviceUpdate device_update = 5;
     FileDelete file_delete = 6;
     ObjectOwnerUpdate object_owner_update = 7;
+    ObjectOwnerUpdate object_owner_delete = 8;
   }
 }

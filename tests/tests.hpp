@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <pear/db/sqlite.hpp>
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -13,6 +15,7 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+#include <algorithm>
 
 namespace pear::tests {
 
@@ -38,6 +41,7 @@ struct Status {
     std::vector<std::string> modified;
     std::vector<std::string> modified_after_staging;
     std::vector<std::string> missing;
+    std::vector<std::string> deleted;
     std::vector<std::string> untracked;
 };
 
@@ -47,7 +51,6 @@ struct FileEntry {
     uint64_t version = 0;
     uint64_t owner_device_id = 0;
     std::string owner_address;
-    std::vector<uint64_t> object_owner_device_ids;
 };
 
 struct Ls {
@@ -182,6 +185,12 @@ public:
         return run(root_, args);
     }
 
+    CommandResult pull_no_share(const std::vector<std::string>& targets) const {
+        std::vector<std::string> args = {"pull", "--no-share"};
+        args.insert(args.end(), targets.begin(), targets.end());
+        return run(root_, args);
+    }
+
     CommandResult raw(const std::vector<std::string>& args) const {
         return run(root_, args);
     }
@@ -208,16 +217,22 @@ public:
         }
 
         for (const auto& item : data.at("staged")) {
+            std::string object_hash;
+            if (item.contains("object_hash") && !item.at("object_hash").is_null()) {
+                object_hash = item.at("object_hash").get<std::string>();
+            }
+
             status.staged.push_back({
                 item.at("path").get<std::string>(),
                 item.at("operation").get<std::string>(),
-                item.at("object_hash").get<std::string>()
+                object_hash
             });
         }
 
         status.modified = data.at("modified").get<std::vector<std::string>>();
         status.modified_after_staging = data.at("modified_after_staging").get<std::vector<std::string>>();
         status.missing = data.at("missing").get<std::vector<std::string>>();
+        status.deleted = data.at("deleted").get<std::vector<std::string>>();
         status.untracked = data.at("untracked").get<std::vector<std::string>>();
 
         return status;
@@ -242,12 +257,32 @@ public:
                 item.at("object_hash").get<std::string>(),
                 item.at("version").get<uint64_t>(),
                 item.at("owner_device_id").get<uint64_t>(),
-                item.at("owner_address").get<std::string>(),
-                item.value("object_owner_device_ids", std::vector<uint64_t>{})
+                item.at("owner_address").get<std::string>()
             });
         }
 
         return ls;
+    }
+
+    std::vector<uint64_t> file_versions(const std::string& path) const {
+        const fs::path database_path = root_ / ".peer" / "meta" / "peer.db";
+
+        pear::db::Connection connection(database_path);
+        auto statement = connection.prepare(R"sql(
+            SELECT version
+            FROM files
+            WHERE path = ?1
+            ORDER BY version ASC;
+        )sql");
+
+        statement.bind(1, path);
+
+        std::vector<uint64_t> versions;
+        while (statement.step()) {
+            versions.push_back(static_cast<uint64_t>(statement.col_i64(0)));
+        }
+
+        return versions;
     }
 
     void write_file(const fs::path& path, std::string_view content) const {
@@ -268,6 +303,24 @@ public:
 
     bool exists(const fs::path& path) const {
         return fs::exists(root_ / path);
+    }
+
+    size_t object_count() const {
+        const fs::path object_directory = root_ / ".peer" / "obj";
+
+        if (!fs::exists(object_directory)) {
+            return 0;
+        }
+
+        size_t count = 0;
+
+        for (const auto& entry : fs::recursive_directory_iterator(object_directory)) {
+            if (entry.is_regular_file()) {
+                ++count;
+            }
+        }
+
+        return count;
     }
 
     const fs::path& root() const {

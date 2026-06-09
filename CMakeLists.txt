@@ -121,6 +121,8 @@ add_library(pear_net
     src/pear/net/node.cpp
     src/pear/net/master_service.cpp
     src/pear/net/remote_client.cpp
+    src/pear/net/grpc_direct_transport.cpp
+    src/pear/net/transport_registry.cpp
     src/pear/net/storage_service.cpp
 )
 
@@ -164,6 +166,14 @@ add_executable(pear
     src/pear/cli/output.cpp
     src/pear/cli/json_output.cpp
     src/pear/cli/logger.cpp
+    src/pear/cli/object_download.cpp
+)
+
+target_compile_options(pear PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Werror
 )
 
 target_include_directories(pear PRIVATE
@@ -203,6 +213,7 @@ if(PEAR_BUILD_TESTS)
     target_link_libraries(tests PRIVATE
         GTest::gtest
         nlohmann_json::nlohmann_json
+        pear_db
     )
 
     add_dependencies(tests pear)
