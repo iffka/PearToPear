@@ -173,10 +173,23 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
 
     bool had_errors = false;
 
+    auto is_missing_tracked_file = [&](const std::string& relative_path) {
+        const fs::path file_path = workspace.get_root() / relative_path;
+        const fs::path empty_path = workspace.get_root() / (relative_path + ".empty");
+
+        return !fs::exists(file_path) && !fs::exists(empty_path);
+    };
+
+    auto stage_delete = [&](const std::string& relative_path) {
+        database.stageFile(relative_path, "", "", "delete", false);
+        std::cout << Grusha << "staged delete " << relative_path << '\n';
+        log_info(workspace.get_root(), "add", "staged delete " + relative_path);
+    };
+
     auto stage_file = [&](const fs::path& file_path) {
         try {
             if (file_path.extension() == ".empty") {
-                return; 
+                return;
             }
 
             const std::string relative_path = workspace.get_relative_path(file_path).generic_string();
@@ -209,10 +222,52 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
         }
     };
 
+    auto stage_missing_path = [&](const fs::path& path) {
+        const fs::path relative_path = workspace.get_relative_path(path);
+        const std::string relative_string = relative_path.generic_string();
+
+        if (database.getFileInfoByPath(relative_string, 0)) {
+            const fs::path empty_path = workspace.get_root() / (relative_string + ".empty");
+
+            if (fs::exists(empty_path)) {
+                std::cout << Grusha << "not pulled " << relative_string << '\n';
+                return;
+            }
+
+            stage_delete(relative_string);
+            return;
+        }
+
+        std::string prefix = relative_string;
+        if (!prefix.empty() && prefix.back() != '/') {
+            prefix += '/';
+        }
+
+        bool staged_anything = false;
+        for (const auto& file : database.getAllFiles()) {
+            if (file.path.rfind(prefix, 0) == 0 && is_missing_tracked_file(file.path)) {
+                stage_delete(file.path);
+                staged_anything = true;
+            }
+        }
+
+        if (!staged_anything) {
+            std::cerr << "error: path is not tracked and does not exist: " << relative_string << '\n';
+            log_error(workspace.get_root(), "add", "path is not tracked and does not exist " + relative_string);
+            had_errors = true;
+        }
+    };
+
     auto stage_path = [&](const fs::path& path) {
         try {
-            const auto files = workspace.collect_files(path);
+            const fs::path absolute_path = workspace.get_root() / workspace.get_relative_path(path);
 
+            if (!fs::exists(absolute_path)) {
+                stage_missing_path(path);
+                return;
+            }
+
+            const auto files = workspace.collect_files(absolute_path);
             for (const auto& file_path : files) {
                 stage_file(file_path);
             }
@@ -225,6 +280,12 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
 
     if (all) {
         stage_path(workspace.get_root());
+
+        for (const auto& file : database.getAllFiles()) {
+            if (is_missing_tracked_file(file.path)) {
+                stage_delete(file.path);
+            }
+        }
     } else {
         for (const auto& path : paths) {
             stage_path(path);
@@ -656,6 +717,18 @@ void run_push() {
 
     for (const auto& file : staged_files) {
         try {
+            if (file.operation == "delete") {
+                pear::net::WalEntryInfo entry {};
+                entry.op_type = pear::net::WalOpTypeInfo::kFileDelete;
+                entry.file_delete.path = file.path;
+                entry.file_delete.version = 0;
+                entry.file_delete.owner_device_id = device_id;
+
+                wal_entries.push_back(entry);
+                pushed_paths.push_back(file.path);
+                continue;
+            }
+
             if (file.operation != "add" && file.operation != "update") {
                 throw std::runtime_error("unsupported staged operation: " + file.operation);
             }

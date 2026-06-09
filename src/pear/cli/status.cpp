@@ -133,6 +133,10 @@ StatusInfo collect_status_info(const pear::storage::Workspace& workspace, pear::
     for (const auto& file : status.staged_files) {
         status.staged_paths.push_back(file.path);
 
+        if (file.operation == "delete") {
+            continue;
+        }
+
         auto local_hash = local_hash_by_path.find(file.path);
         if (local_hash == local_hash_by_path.end()) {
             status.missing_paths.push_back(file.path);

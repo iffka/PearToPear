@@ -11,11 +11,19 @@ namespace {
 using json = nlohmann::json;
 
 json staged_file_to_json(const pear::db::StagedFileInfo& file) {
-    return {
+    json result = {
         {"path", file.path},
         {"operation", file.operation},
-        {"object_hash", file.object_hash}
+        {"read_only", file.read_only}
     };
+
+    if (file.operation == "delete") {
+        result["object_hash"] = nullptr;
+    } else {
+        result["object_hash"] = file.object_hash;
+    }
+
+    return result;
 }
 
 json file_to_json(const pear::net::FileUpdateInfo& file, pear::db::SqliteDatabase& database) {
@@ -28,7 +36,8 @@ json file_to_json(const pear::net::FileUpdateInfo& file, pear::db::SqliteDatabas
         {"version", file.version},
         {"owner_device_id", file.owner_device_id},
         {"owner_address", owner_address},
-        {"object_owner_device_ids", object_owner_device_ids}
+        {"object_owner_device_ids", object_owner_device_ids},
+        {"read_only", file.read_only}
     };
 }
 
