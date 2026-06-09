@@ -310,4 +310,31 @@ void RemoteClient::DownloadFileRange(const std::string& vu_address, const std::s
     }
 }
 
+bool RemoteClient::DeleteObject(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id) {
+    auto channel = grpc::CreateChannel(vu_address, grpc::InsecureChannelCredentials());
+    auto stub = Storage::NewStub(channel);
+
+    DeleteObjectRequest req;
+    req.set_object_hash(object_hash);
+    req.set_requester_device_id(requester_device_id);
+
+    DeleteObjectResponse resp;
+    grpc::ClientContext ctx;
+    grpc::Status status = stub->DeleteObject(&ctx, req, &resp);
+
+    if (!status.ok()) {
+        throw std::runtime_error("DeleteObject failed: " + status.error_message());
+    }
+
+    if (resp.busy()) {
+        return false;
+    }
+
+    if (!resp.success()) {
+        throw std::runtime_error("DeleteObject failed: " + resp.error_message());
+    }
+
+    return true;
+}
+
 } // namespace pear::net

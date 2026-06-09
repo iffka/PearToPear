@@ -28,4 +28,8 @@ void GrpcDirectTransport::downloadFileRange(const std::string& owner_ref, const 
     RemoteClient::DownloadFileRange(owner_ref, object_hash, requester_device_id, offset, size, destination_path);
 }
 
+bool GrpcDirectTransport::deleteObject(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id) {
+    return RemoteClient::DeleteObject(owner_ref, object_hash, requester_device_id);
+}
+
 } // namespace pear::net

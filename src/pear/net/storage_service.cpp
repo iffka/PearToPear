@@ -7,6 +7,9 @@
 #include <filesystem>
 #include <stdexcept>
 #include <utility>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 
 
 namespace pear::net {
@@ -63,9 +66,23 @@ grpc::Status stream_object_range(const std::filesystem::path& object_path, uint6
 
 StorageServiceImpl::StorageServiceImpl(std::shared_ptr<pear::storage::Workspace> workspace) : workspace_(std::move(workspace)) {}
 
+std::shared_ptr<std::shared_mutex> StorageServiceImpl::getObjectLock(const std::string& object_hash) {
+    std::lock_guard<std::mutex> lock(object_locks_mutex_);
+
+    auto& object_lock = object_locks_[object_hash];
+    if (!object_lock) {
+        object_lock = std::make_shared<std::shared_mutex>();
+    }
+
+    return object_lock;
+}
+
 grpc::Status StorageServiceImpl::DownloadFile(grpc::ServerContext* /*ctx*/, const DownloadRequest* req, grpc::ServerWriter<FileChunk>* writer) {
     try {
         const std::string object_hash = req->object_hash();
+        const auto object_lock = getObjectLock(object_hash);
+        std::shared_lock<std::shared_mutex> lock(*object_lock);
+
         if (!workspace_->has_objectfile(object_hash)) {
             return grpc::Status(grpc::StatusCode::NOT_FOUND, "Object not found");
         }
@@ -80,6 +97,9 @@ grpc::Status StorageServiceImpl::DownloadFile(grpc::ServerContext* /*ctx*/, cons
 grpc::Status StorageServiceImpl::GetObjectInfo(grpc::ServerContext* /*ctx*/, const ObjectInfoRequest* req, ObjectInfoResponse* resp) {
     try {
         const std::string object_hash = req->object_hash();
+        const auto object_lock = getObjectLock(object_hash);
+        std::shared_lock<std::shared_mutex> lock(*object_lock);
+
         if (!workspace_->has_objectfile(object_hash)) {
             resp->set_success(false);
             resp->set_error_message("Object not found");
@@ -87,6 +107,7 @@ grpc::Status StorageServiceImpl::GetObjectInfo(grpc::ServerContext* /*ctx*/, con
         }
 
         const std::filesystem::path object_path = workspace_->get_objectfile_path(object_hash);
+
         resp->set_success(true);
         resp->set_size(static_cast<uint64_t>(std::filesystem::file_size(object_path)));
         return grpc::Status::OK;
@@ -100,6 +121,9 @@ grpc::Status StorageServiceImpl::GetObjectInfo(grpc::ServerContext* /*ctx*/, con
 grpc::Status StorageServiceImpl::DownloadFileRange(grpc::ServerContext* /*ctx*/, const DownloadRangeRequest* req, grpc::ServerWriter<FileChunk>* writer) {
     try {
         const std::string object_hash = req->object_hash();
+        const auto object_lock = getObjectLock(object_hash);
+        std::shared_lock<std::shared_mutex> lock(*object_lock);
+
         if (!workspace_->has_objectfile(object_hash)) {
             return grpc::Status(grpc::StatusCode::NOT_FOUND, "Object not found");
         }
@@ -108,6 +132,38 @@ grpc::Status StorageServiceImpl::DownloadFileRange(grpc::ServerContext* /*ctx*/,
         return stream_object_range(object_path, req->offset(), req->size(), writer);
     } catch (const std::exception& exception) {
         return grpc::Status(grpc::StatusCode::INTERNAL, exception.what());
+    }
+}
+
+grpc::Status StorageServiceImpl::DeleteObject(grpc::ServerContext* /*ctx*/, const DeleteObjectRequest* req, DeleteObjectResponse* resp) {
+    try {
+        const std::string object_hash = req->object_hash();
+        const auto object_lock = getObjectLock(object_hash);
+        std::unique_lock<std::shared_mutex> lock(*object_lock, std::try_to_lock);
+
+        if (!lock.owns_lock()) {
+            resp->set_success(false);
+            resp->set_busy(true);
+            resp->set_error_message("Object is busy");
+            return grpc::Status::OK;
+        }
+
+        if (!workspace_->has_objectfile(object_hash)) {
+            resp->set_success(true);
+            resp->set_busy(false);
+            return grpc::Status::OK;
+        }
+
+        workspace_->delete_objectfile(object_hash);
+
+        resp->set_success(true);
+        resp->set_busy(false);
+        return grpc::Status::OK;
+    } catch (const std::exception& exception) {
+        resp->set_success(false);
+        resp->set_busy(false);
+        resp->set_error_message(exception.what());
+        return grpc::Status::OK;
     }
 }
 
