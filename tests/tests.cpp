@@ -25,6 +25,11 @@ std::string object_hash_for(const Ls& ls, const std::string& path) {
     return {};
 }
 
+bool owner_can_write(const fs::path& path) {
+    const auto permissions = fs::status(path).permissions();
+    return (permissions & fs::perms::owner_write) != fs::perms::none;
+}
+
 } // namespace
 
 #ifdef PEAR_TEST_ADD_FILE
@@ -874,6 +879,90 @@ TEST(net, pull_no_share_does_not_register_object_owner) {
 }
 
 #endif // PEAR_TEST_NET_PULL_NO_SHARE_DOES_NOT_REGISTER_OBJECT_OWNER
+
+#ifdef PEAR_TEST_NET_READONLY_FILE_USES_OBJECT_LINK
+
+TEST(net, readonly_file_uses_object_link) {
+    Repo main;
+    Repo peer;
+
+    const std::string main_address = local_address();
+    const std::string peer_address = local_address();
+
+    EXPECT_EQ(main.init().code, 0);
+    EXPECT_EQ(peer.init().code, 0);
+
+    EXPECT_EQ(main.connect_main(main_address).code, 0);
+    wait_network();
+
+    EXPECT_EQ(peer.connect(main_address, peer_address).code, 0);
+    wait_network();
+
+    main.write_file("photos/cat.jpg", "image content v1\n");
+
+    EXPECT_EQ(main.raw({"add", "--readonly", "photos/cat.jpg"}).code, 0);
+    EXPECT_EQ(main.push().code, 0);
+
+    const Ls main_ls = main.ls();
+    const std::string readonly_hash = object_hash_for(main_ls, "photos/cat.jpg");
+    ASSERT_FALSE(readonly_hash.empty());
+
+    const fs::path main_file_path = main.root() / "photos/cat.jpg";
+    const fs::path main_object_path = main.root() / ".peer" / "obj" / readonly_hash;
+
+    ASSERT_TRUE(fs::exists(main_file_path));
+    ASSERT_TRUE(fs::exists(main_object_path));
+    EXPECT_TRUE(fs::equivalent(main_file_path, main_object_path));
+    EXPECT_FALSE(owner_can_write(main_file_path));
+
+    EXPECT_EQ(peer.update().code, 0);
+    EXPECT_TRUE(peer.exists("photos/cat.jpg.empty"));
+    EXPECT_FALSE(peer.exists("photos/cat.jpg"));
+
+    EXPECT_EQ(peer.pull({"photos/cat.jpg"}).code, 0);
+    EXPECT_EQ(peer.read_file("photos/cat.jpg"), "image content v1\n");
+    EXPECT_FALSE(peer.exists("photos/cat.jpg.empty"));
+
+    const fs::path peer_file_path = peer.root() / "photos/cat.jpg";
+    const fs::path peer_object_path = peer.root() / ".peer" / "obj" / readonly_hash;
+
+    ASSERT_TRUE(fs::exists(peer_file_path));
+    ASSERT_TRUE(fs::exists(peer_object_path));
+    EXPECT_TRUE(fs::equivalent(peer_file_path, peer_object_path));
+    EXPECT_FALSE(owner_can_write(peer_file_path));
+
+    EXPECT_EQ(peer.raw({"readonly", "--off", "photos/cat.jpg"}).code, 0);
+
+    ASSERT_TRUE(fs::exists(peer_file_path));
+    ASSERT_TRUE(fs::exists(peer_object_path));
+    EXPECT_FALSE(fs::equivalent(peer_file_path, peer_object_path));
+    EXPECT_TRUE(owner_can_write(peer_file_path));
+    EXPECT_EQ(peer.read_file("photos/cat.jpg"), "image content v1\n");
+
+    peer.write_file("photos/cat.jpg", "image content v2\n");
+
+    EXPECT_EQ(peer.add({"photos/cat.jpg"}).code, 0);
+    EXPECT_EQ(peer.push().code, 0);
+
+    EXPECT_EQ(main.update().code, 0);
+    EXPECT_EQ(main.pull({"photos/cat.jpg"}).code, 0);
+    EXPECT_EQ(main.read_file("photos/cat.jpg"), "image content v2\n");
+
+    const Ls updated_main_ls = main.ls();
+    const std::string normal_hash = object_hash_for(updated_main_ls, "photos/cat.jpg");
+    ASSERT_FALSE(normal_hash.empty());
+    EXPECT_NE(normal_hash, readonly_hash);
+
+    const fs::path updated_main_object_path = main.root() / ".peer" / "obj" / normal_hash;
+    ASSERT_TRUE(fs::exists(updated_main_object_path));
+    EXPECT_FALSE(fs::equivalent(main_file_path, updated_main_object_path));
+    EXPECT_TRUE(owner_can_write(main_file_path));
+
+    EXPECT_EQ(peer.disconnect().code, 0);
+    EXPECT_EQ(main.disconnect().code, 0);
+}
+
+#endif // PEAR_TEST_NET_READONLY_FILE_USES_OBJECT_LINK
 
 } // namespace pear::tests
 

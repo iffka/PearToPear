@@ -192,6 +192,10 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
                 workspace.create_objectfile(object_hash, file_path);
             }
 
+            if (read_only) {
+                workspace.link_objectfile_to_workspace(object_hash, file_path);
+            }
+
             const std::string operation = current_object_hash ? "update" : "add";
             database.stageFile(relative_path, object_hash, file_path.string(), operation, read_only);
 
@@ -337,6 +341,7 @@ void run_readonly(const std::vector<std::filesystem::path>& paths, bool turn_off
 
     for (const auto& path : paths) {
         try {
+            const std::filesystem::path local_path = workspace.get_root() / workspace.get_relative_path(path);
             const std::string relative_path = workspace.get_relative_path(path).generic_string();
             const auto file_info = database.getFileInfoByPath(relative_path, 0);
 
@@ -357,15 +362,47 @@ void run_readonly(const std::vector<std::filesystem::path>& paths, bool turn_off
                 continue;
             }
 
-            const std::filesystem::path local_path = workspace.get_root() / relative_path;
-            database.stageFile(relative_path, file_info->object_hash, local_path.string(), "update", !turn_off);
+            if (!turn_off) {
+                if (!std::filesystem::exists(local_path) || !std::filesystem::is_regular_file(local_path)) {
+                    std::cerr << "error: file does not exist in workspace: " << relative_path << '\n';
+                    log_error(workspace.get_root(), "readonly", "file does not exist in workspace " + relative_path);
+                    had_errors = true;
+                    continue;
+                }
 
-            if (turn_off) {
-                std::cout << Grusha << "staged readonly off " << relative_path << '\n';
-                log_info(workspace.get_root(), "readonly", "staged readonly off " + relative_path);
-            } else {
+                const std::string current_hash = pear::storage::get_file_hash(local_path);
+                if (current_hash != file_info->object_hash) {
+                    std::cerr << "error: file is modified, use pear add --readonly " << relative_path << '\n';
+                    log_error(workspace.get_root(), "readonly", "file is modified " + relative_path);
+                    had_errors = true;
+                    continue;
+                }
+
+                if (!workspace.has_objectfile(file_info->object_hash)) {
+                    workspace.create_objectfile(file_info->object_hash, local_path);
+                }
+
+                workspace.link_objectfile_to_workspace(file_info->object_hash, local_path);
+                database.stageFile(relative_path, file_info->object_hash, local_path.string(), "update", true);
+
                 std::cout << Grusha << "staged readonly " << relative_path << '\n';
                 log_info(workspace.get_root(), "readonly", "staged readonly " + relative_path);
+            } else {
+                if (workspace.has_objectfile(file_info->object_hash)) {
+                    workspace.copy_objectfile_to_workspace(file_info->object_hash, local_path);
+                } else if (std::filesystem::exists(local_path) && std::filesystem::is_regular_file(local_path)) {
+                    std::filesystem::permissions(local_path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write | std::filesystem::perms::group_read | std::filesystem::perms::others_read, std::filesystem::perm_options::replace);
+                } else {
+                    std::cerr << "error: cannot restore normal file: " << relative_path << '\n';
+                    log_error(workspace.get_root(), "readonly", "cannot restore normal file " + relative_path);
+                    had_errors = true;
+                    continue;
+                }
+
+                database.stageFile(relative_path, file_info->object_hash, local_path.string(), "update", false);
+
+                std::cout << Grusha << "staged readonly off " << relative_path << '\n';
+                log_info(workspace.get_root(), "readonly", "staged readonly off " + relative_path);
             }
         } catch (const std::exception& error) {
             std::cerr << "error: failed to change readonly mode for " << path << ": " << error.what() << '\n';
@@ -546,12 +583,21 @@ void run_pull(const std::vector<std::string>& targets, bool no_share) {
         const fs::path destination_path = workspace.get_root() / file.path;
         fs::create_directories(destination_path.parent_path());
 
-        if (workspace.has_objectfile(file.object_hash)) {
-            fs::copy_file(workspace.get_objectfile_path(file.object_hash), destination_path, fs::copy_options::overwrite_existing);
+        if (file.read_only) {
+            if (!workspace.has_objectfile(file.object_hash)) {
+                const std::filesystem::path object_path = workspace.get_obj_dir() / file.object_hash;
+                download_object_from_owners(database, file, device_id, object_path);
+            }
+
+            workspace.link_objectfile_to_workspace(file.object_hash, destination_path);
         } else {
-            download_object_from_owners(database, file, device_id, destination_path);
-            if (!no_share) {
-                workspace.create_objectfile(file.object_hash, destination_path);
+            if (workspace.has_objectfile(file.object_hash)) {
+                workspace.copy_objectfile_to_workspace(file.object_hash, destination_path);
+            } else {
+                download_object_from_owners(database, file, device_id, destination_path);
+                if (!no_share) {
+                    workspace.create_objectfile(file.object_hash, destination_path);
+                }
             }
         }
 
