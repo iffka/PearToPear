@@ -9,7 +9,9 @@ service Master {
 }
 
 service Storage {
+  rpc GetObjectInfo(ObjectInfoRequest) returns (ObjectInfoResponse);
   rpc DownloadFile(DownloadRequest) returns (stream FileChunk);
+  rpc DownloadFileRange(DownloadRangeRequest) returns (stream FileChunk);
 }
 
 message RegisterRequest {
@@ -50,6 +52,24 @@ message PushWALResponse {
 message DownloadRequest {
   string object_hash = 1;
   uint64 requester_device_id = 2;
+}
+
+message ObjectInfoRequest {
+  string object_hash = 1;
+  uint64 requester_device_id = 2;
+}
+
+message ObjectInfoResponse {
+  bool success = 1;
+  uint64 size = 2;
+  string error_message = 3;
+}
+
+message DownloadRangeRequest {
+  string object_hash = 1;
+  uint64 requester_device_id = 2;
+  uint64 offset = 3;
+  uint64 size = 4;
 }
 
 message FileChunk {

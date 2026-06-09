@@ -166,6 +166,7 @@ add_executable(pear
     src/pear/cli/output.cpp
     src/pear/cli/json_output.cpp
     src/pear/cli/logger.cpp
+    src/pear/cli/object_download.cpp
 )
 
 target_compile_options(pear PRIVATE

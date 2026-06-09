@@ -5,6 +5,7 @@
 #include <pear/demon/demon.hpp>
 #include <pear/net/transport_registry.hpp>
 #include <pear/fs/hash.hpp>
+#include <pear/cli/object_download.hpp>
 
 #include "command_utils.hpp"
 #include "output.hpp"
@@ -22,49 +23,10 @@
 #include <chrono>
 #include <thread>
 #include <unordered_set>
+#include <atomic>
+#include <mutex>
 
 namespace pear::cli {
-
-namespace {
-
-bool download_object_from_any_owner(pear::db::SqliteDatabase& database, const pear::net::FileUpdateInfo& file, uint64_t device_id, const std::filesystem::path& destination_path) {
-    std::vector<std::string> owner_addresses;
-    namespace fs = std::filesystem;
-
-    const std::string primary_owner_address = database.getDeviceAddress(file.owner_device_id);
-    if (!primary_owner_address.empty()) {
-        owner_addresses.push_back(primary_owner_address);
-    }
-
-    for (const auto& owner_address : database.getObjectOwnerAddresses(file.object_hash)) {
-        if (!owner_address.empty() && std::find(owner_addresses.begin(), owner_addresses.end(), owner_address) == owner_addresses.end()) {
-            owner_addresses.push_back(owner_address);
-        }
-    }
-
-    if (owner_addresses.empty()) {
-        throw std::runtime_error("no known owners for object " + file.object_hash);
-    }
-
-    std::string last_error;
-    for (const auto& owner_address : owner_addresses) {
-        try {
-            pear::net::transport().downloadFile(owner_address, file.object_hash, device_id, destination_path.string());
-            return true;
-        } catch (const std::exception& error) {
-            last_error = error.what();
-
-            std::error_code cleanup_error;
-            fs::remove(destination_path, cleanup_error);
-        }
-    }
-
-    std::error_code cleanup_error;
-    fs::remove(destination_path, cleanup_error);
-    throw std::runtime_error("failed to download object from all owners: " + last_error);
-}
-
-} // namespace
 
 void run_init(const std::filesystem::path& workspace_path) {
 #ifdef PEAR_DEBUG
@@ -526,7 +488,7 @@ void run_pull(const std::vector<std::string>& targets, bool no_share) {
         if (workspace.has_objectfile(file.object_hash)) {
             fs::copy_file(workspace.get_objectfile_path(file.object_hash), destination_path, fs::copy_options::overwrite_existing);
         } else {
-            download_object_from_any_owner(database, file, device_id, destination_path);
+            download_object_from_owners(database, file, device_id, destination_path);
             if (!no_share) {
                 workspace.create_objectfile(file.object_hash, destination_path);
             }

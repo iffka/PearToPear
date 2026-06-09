@@ -20,4 +20,12 @@ void GrpcDirectTransport::downloadFile(const std::string& owner_ref, const std::
     RemoteClient::DownloadFile(owner_ref, object_hash, requester_device_id, destination_path);
 }
 
+uint64_t GrpcDirectTransport::getObjectSize(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id) {
+    return RemoteClient::GetObjectSize(owner_ref, object_hash, requester_device_id);
+}
+
+void GrpcDirectTransport::downloadFileRange(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, uint64_t offset, uint64_t size, const std::string& destination_path) {
+    RemoteClient::DownloadFileRange(owner_ref, object_hash, requester_device_id, offset, size, destination_path);
+}
+
 } // namespace pear::net
