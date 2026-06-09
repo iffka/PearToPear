@@ -30,12 +30,16 @@ int main(int argc, char** argv) {
     CLI::App* disconnect = app.add_subcommand("disconnect", "Disconnect from the current Pear workspace");
 
     bool add_all = false;
+    bool add_readonly = false;
     std::vector<std::filesystem::path> add_paths;
     CLI::App* add = app.add_subcommand("add", "Stage workspace changes");
     auto* add_paths_opt = add->add_option("paths", add_paths, "Paths to stage");
     auto* add_all_opt = add->add_flag("--all", add_all, "Stage all workspace changes");
+    auto* add_readonly_opt = add->add_flag("--readonly", add_readonly, "Stage files as readonly");
     add_paths_opt->excludes(add_all_opt);
     add_all_opt->excludes(add_paths_opt);
+    add_all_opt->excludes(add_readonly_opt);
+    add_readonly_opt->excludes(add_all_opt);
 
     bool unstage_all = false;
     std::vector<std::filesystem::path> unstage_paths;
@@ -44,6 +48,12 @@ int main(int argc, char** argv) {
     auto* unstage_all_opt = unstage->add_flag("--all", unstage_all, "Remove all staged changes");
     unstage_paths_opt->excludes(unstage_all_opt);
     unstage_all_opt->excludes(unstage_paths_opt);
+
+    bool readonly_off = false;
+    std::vector<std::filesystem::path> readonly_paths;
+    CLI::App* readonly = app.add_subcommand("readonly", "Change file readonly mode");
+    readonly->add_option("paths", readonly_paths, "Files to change readonly mode")->required();
+    readonly->add_flag("--off", readonly_off, "Turn readonly mode off");
 
     CLI::App* update = app.add_subcommand("update", "Update Pear workspace metadata");
 
@@ -80,7 +90,7 @@ int main(int argc, char** argv) {
         if (!add_all && add_paths.empty()) {
             throw CLI::ValidationError("add", "Specify paths or use --all");
         }
-        pear::cli::run_add(add_paths, add_all);
+        pear::cli::run_add(add_paths, add_all, add_readonly);
     });
     unstage->callback([&]() {
         if (!unstage_all && unstage_paths.empty()) {
@@ -88,6 +98,7 @@ int main(int argc, char** argv) {
         }
         pear::cli::run_unstage(unstage_paths, unstage_all);
     });
+    readonly->callback([&]() { pear::cli::run_readonly(readonly_paths, readonly_off);});
     update->callback([&](){pear::cli::run_update(); });
     ls->callback([&](){pear::cli::run_ls(json_ls); });
     push->callback([&](){pear::cli::run_push(); });

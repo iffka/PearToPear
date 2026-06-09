@@ -13,8 +13,9 @@ void run_deinit();
 void run_connect(const std::string& gu_address, const std::string& listen_address, bool is_main);
 void run_disconnect();
 
-void run_add(const std::vector<std::filesystem::path>& paths, bool all);
+void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool read_only);
 void run_unstage(const std::vector<std::filesystem::path>& paths, bool all);
+void run_readonly(const std::vector<std::filesystem::path>& paths, bool turn_off);
 
 void run_update();
 void run_ls(bool json_format);

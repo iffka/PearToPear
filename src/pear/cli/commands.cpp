@@ -152,10 +152,11 @@ void run_disconnect() {
     }
 }
 
-void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
+void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool read_only) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_add called\n";
     std::cout << "[DEBUG] all: " << std::boolalpha << all << '\n';
+    std::cout << "[DEBUG] read_only: " << std::boolalpha << read_only << '\n';
 
     if (!all) {
         for (const auto& path : paths) {
@@ -192,7 +193,7 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all) {
             }
 
             const std::string operation = current_object_hash ? "update" : "add";
-            database.stageFile(relative_path, object_hash, file_path.string(), operation);
+            database.stageFile(relative_path, object_hash, file_path.string(), operation, read_only);
 
             std::cout << Grusha << "staged " << relative_path << '\n';
             log_info(workspace.get_root(), "add", "staged " + relative_path);
@@ -317,6 +318,65 @@ void run_unstage(const std::vector<std::filesystem::path>& paths, bool all) {
     if (had_errors) {
         log_error(workspace.get_root(), "unstage", "failed to unstage some files");
         throw std::runtime_error("failed to unstage some files");
+    }
+}
+
+void run_readonly(const std::vector<std::filesystem::path>& paths, bool turn_off) {
+#ifdef PEAR_DEBUG
+    std::cout << "[DEBUG] run_readonly called\n";
+    std::cout << "[DEBUG] turn_off: " << std::boolalpha << turn_off << '\n';
+    for (const auto& path : paths) {
+        std::cout << "[DEBUG] path: " << path << '\n';
+    }
+#endif
+
+    pear::storage::Workspace workspace = pear::storage::Workspace::discover();
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+
+    bool had_errors = false;
+
+    for (const auto& path : paths) {
+        try {
+            const std::string relative_path = workspace.get_relative_path(path).generic_string();
+            const auto file_info = database.getFileInfoByPath(relative_path, 0);
+
+            if (!file_info) {
+                std::cerr << "error: file is not tracked: " << relative_path << '\n';
+                log_error(workspace.get_root(), "readonly", "file is not tracked " + relative_path);
+                had_errors = true;
+                continue;
+            }
+
+            if (file_info->read_only && !turn_off) {
+                std::cout << Grusha << "already readonly " << relative_path << '\n';
+                continue;
+            }
+
+            if (!file_info->read_only && turn_off) {
+                std::cout << Grusha << "already normal " << relative_path << '\n';
+                continue;
+            }
+
+            const std::filesystem::path local_path = workspace.get_root() / relative_path;
+            database.stageFile(relative_path, file_info->object_hash, local_path.string(), "update", !turn_off);
+
+            if (turn_off) {
+                std::cout << Grusha << "staged readonly off " << relative_path << '\n';
+                log_info(workspace.get_root(), "readonly", "staged readonly off " + relative_path);
+            } else {
+                std::cout << Grusha << "staged readonly " << relative_path << '\n';
+                log_info(workspace.get_root(), "readonly", "staged readonly " + relative_path);
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "error: failed to change readonly mode for " << path << ": " << error.what() << '\n';
+            log_error(workspace.get_root(), "readonly", "failed to change readonly mode " + path.string());
+            had_errors = true;
+        }
+    }
+
+    if (had_errors) {
+        log_error(workspace.get_root(), "readonly", "failed to change readonly mode for some files");
+        throw std::runtime_error("failed to change readonly mode for some files");
     }
 }
 
