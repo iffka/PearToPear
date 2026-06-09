@@ -401,6 +401,7 @@ void run_push() {
             entry.file.object_hash = file.object_hash;
             entry.file.version = 0;
             entry.file.owner_device_id = device_id;
+            entry.file.read_only = file.read_only;
 
             wal_entries.push_back(entry);
             pushed_paths.push_back(file.path);

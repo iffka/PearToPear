@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS files(
     object_hash TEXT,
     owner_device_id INTEGER NOT NULL,
     is_deleted INTEGER NOT NULL DEFAULT 0,
+    read_only INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(path, version)
 );
 
@@ -52,6 +53,7 @@ CREATE TABLE IF NOT EXISTS wal(
     file_object_hash TEXT,
     file_version INTEGER,
     file_owner_device_id INTEGER,
+    file_read_only INTEGER NOT NULL DEFAULT 0,
 
     device_id INTEGER,
     device_address TEXT
@@ -61,7 +63,8 @@ CREATE TABLE IF NOT EXISTS staging_files(
     path TEXT PRIMARY KEY,
     object_hash TEXT NOT NULL,
     local_path TEXT NOT NULL,
-    operation TEXT NOT NULL DEFAULT 'add'
+    operation TEXT NOT NULL DEFAULT 'add',
+    read_only INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS local_config(

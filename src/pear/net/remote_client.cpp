@@ -26,6 +26,7 @@ void fillProtoWalEntry(WalEntry* proto_entry, const WalEntryInfo& entry) {
         file_update->set_object_hash(entry.file.object_hash);
         file_update->set_version(entry.file.version);
         file_update->set_owner_device_id(entry.file.owner_device_id);
+        file_update->set_read_only(entry.file.read_only);
         return;
     }
 
@@ -63,6 +64,7 @@ WalEntryInfo parseProtoWalEntry(const WalEntry& proto_entry) {
         entry.file.object_hash = proto_entry.file_update().object_hash();
         entry.file.version = proto_entry.file_update().version();
         entry.file.owner_device_id = proto_entry.file_update().owner_device_id();
+        entry.file.read_only = proto_entry.file_update().read_only();
         return entry;
     }
 

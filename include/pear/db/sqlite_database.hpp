@@ -22,6 +22,7 @@ struct StagedFileInfo {
     std::string object_hash;
     std::string local_path;
     std::string operation;
+    bool read_only = false;
 };
 
 class SqliteDatabase {
@@ -47,8 +48,7 @@ class SqliteDatabase {
     uint64_t getNextVersion(const std::string& path);
     std::vector<pear::net::FileUpdateInfo> getAllFiles();
 
-    void stageFile(const std::string& path, const std::string& object_hash,
-                   const std::string& local_path, const std::string& operation = "add");
+    void stageFile(const std::string& path, const std::string& object_hash, const std::string& local_path, const std::string& operation = "add", bool read_only = false);
     void unstageFile(const std::string& path);
     std::vector<StagedFileInfo> getStagedFiles();
     void clearStaging();

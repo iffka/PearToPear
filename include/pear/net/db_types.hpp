@@ -16,6 +16,7 @@ struct FileUpdateInfo {
     std::string object_hash;
     uint64_t version;
     uint64_t owner_device_id;
+    bool read_only = false;
 };
 
 struct FileDeleteInfo {

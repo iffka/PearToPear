@@ -90,6 +90,7 @@ message FileUpdate {
   string object_hash = 2;
   uint64 version = 3;
   uint64 owner_device_id = 4;
+  bool read_only = 5;
 }
 
 message FileDelete {
