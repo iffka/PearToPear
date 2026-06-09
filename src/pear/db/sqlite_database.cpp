@@ -677,4 +677,26 @@ std::vector<std::string> SqliteDatabase::getAllFileStatus() {
     return out;
 }
 
+bool SqliteDatabase::isObjectReferenced(const std::string& object_hash) {
+    auto st = conn_->prepare(R"sql(
+        SELECT EXISTS(
+            SELECT 1
+            FROM files
+            WHERE object_hash = ?1
+            UNION ALL
+            SELECT 1
+            FROM staging_files
+            WHERE object_hash = ?1
+        );
+    )sql");
+
+    st.bind(1, object_hash);
+
+    if (!st.step()) {
+        return false;
+    }
+
+    return st.col_i64(0) != 0;
+}
+
 }  // namespace pear::db

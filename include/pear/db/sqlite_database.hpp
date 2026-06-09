@@ -71,6 +71,8 @@ class SqliteDatabase {
 
     std::vector<std::string> getAllFileStatus();
 
+    bool isObjectReferenced(const std::string& object_hash);
+
    private:
     void applyWalEntryToState(const pear::net::WalEntryInfo& entry);
 
