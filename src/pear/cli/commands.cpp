@@ -29,6 +29,112 @@
 
 namespace pear::cli {
 
+namespace {
+
+struct CleanupResult {
+    uint64_t removed_versions = 0;
+    uint64_t removed_objects = 0;
+    uint64_t busy_objects = 0;
+};
+
+CleanupResult cleanup_versions_and_unused_objects(
+    pear::storage::Workspace& workspace,
+    uint64_t keep_versions,
+    const std::vector<std::string>& cleanup_paths
+) {
+    if (!pear::demon::is_alive(workspace.get_root())) {
+        throw std::runtime_error("local demon is not running");
+    }
+
+    {
+        pear::db::SqliteDatabase database(get_database_path(workspace));
+
+        if (database.getMasterAddress().empty()) {
+            throw std::runtime_error("not connected: master address is empty");
+        }
+
+        if (database.getDeviceId() == 0) {
+            throw std::runtime_error("not connected: device id is unknown");
+        }
+    }
+
+    sync_with_master(false);
+
+    pear::db::SqliteDatabase database(get_database_path(workspace));
+    auto& transport = pear::net::transport();
+
+    const std::string master_address = database.getMasterAddress();
+    const uint64_t device_id = database.getDeviceId();
+    const std::string local_address = database.getDeviceAddress(device_id);
+
+    if (local_address.empty()) {
+        throw std::runtime_error("local device address is unknown");
+    }
+
+    CleanupResult result;
+    result.removed_versions = database.cleanupOldFileVersions(cleanup_paths, keep_versions);
+
+    std::vector<std::string> object_hashes_to_delete;
+
+    if (std::filesystem::exists(workspace.get_obj_dir())) {
+        for (const auto& entry : std::filesystem::directory_iterator(workspace.get_obj_dir())) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+
+            const std::string object_hash = entry.path().filename().string();
+
+            if (!database.isObjectReferenced(object_hash)) {
+                object_hashes_to_delete.push_back(object_hash);
+            }
+        }
+    }
+
+    std::vector<pear::net::WalEntryInfo> owner_delete_entries;
+
+    for (const auto& object_hash : object_hashes_to_delete) {
+        if (!database.hasObjectOwner(object_hash, device_id)) {
+            continue;
+        }
+
+        pear::net::WalEntryInfo entry {};
+        entry.op_type = pear::net::WalOpTypeInfo::kObjectOwnerDelete;
+        entry.object_owner.object_hash = object_hash;
+        entry.object_owner.owner_device_id = device_id;
+        owner_delete_entries.push_back(entry);
+    }
+
+    if (!owner_delete_entries.empty()) {
+        std::vector<uint64_t> assigned_seq_ids;
+
+        if (!transport.pushWAL(master_address, device_id, owner_delete_entries, assigned_seq_ids)) {
+            log_error(workspace.get_root(), "cleanup", "failed to unregister object owners");
+            throw std::runtime_error("failed to unregister object owners");
+        }
+
+        sync_with_master(false);
+    }
+
+    for (const auto& object_hash : object_hashes_to_delete) {
+        try {
+            const bool deleted = transport.deleteObject(local_address, object_hash, device_id);
+
+            if (deleted) {
+                ++result.removed_objects;
+            } else {
+                ++result.busy_objects;
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "warning: failed to delete object " << object_hash << ": " << error.what() << '\n';
+            log_error(workspace.get_root(), "cleanup", "failed to delete object " + object_hash);
+        }
+    }
+
+    return result;
+}
+
+} // namespace
+
 void run_init(const std::filesystem::path& workspace_path) {
 #ifdef PEAR_DEBUG
     std::cout << "[DEBUG] run_init called\n";
@@ -180,10 +286,12 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
         return !fs::exists(file_path) && !fs::exists(empty_path);
     };
 
-    auto stage_delete = [&](const std::string& relative_path) {
-        database.stageFile(relative_path, "", "", "delete", false);
-        std::cout << Grusha << "staged delete " << relative_path << '\n';
-        log_info(workspace.get_root(), "add", "staged delete " + relative_path);
+    std::set<std::string> removed_tracked_paths;
+
+    auto mark_removed_tracked_file = [&](const std::string& relative_path) {
+        removed_tracked_paths.insert(relative_path);
+        std::cout << Grusha << "marked local removal " << relative_path << '\n';
+        log_info(workspace.get_root(), "add", "marked local removal " + relative_path);
     };
 
     auto stage_file = [&](const fs::path& file_path) {
@@ -234,7 +342,7 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
                 return;
             }
 
-            stage_delete(relative_string);
+            mark_removed_tracked_file(relative_string);
             return;
         }
 
@@ -246,7 +354,7 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
         bool staged_anything = false;
         for (const auto& file : database.getAllFiles()) {
             if (file.path.rfind(prefix, 0) == 0 && is_missing_tracked_file(file.path)) {
-                stage_delete(file.path);
+                mark_removed_tracked_file(file.path);
                 staged_anything = true;
             }
         }
@@ -283,7 +391,7 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
 
         for (const auto& file : database.getAllFiles()) {
             if (is_missing_tracked_file(file.path)) {
-                stage_delete(file.path);
+                mark_removed_tracked_file(file.path);
             }
         }
     } else {
@@ -295,6 +403,26 @@ void run_add(const std::vector<std::filesystem::path>& paths, bool all, bool rea
     if (had_errors) {
         log_error(workspace.get_root(), "add", "failed to stage some files");
         throw std::runtime_error("failed to stage some files");
+    }
+
+    if (!removed_tracked_paths.empty()) {
+        const std::vector<std::string> cleanup_paths(removed_tracked_paths.begin(), removed_tracked_paths.end());
+
+        const CleanupResult cleanup_result = cleanup_versions_and_unused_objects(workspace, 0, cleanup_paths);
+
+        std::cout << Grusha << "removed " << cleanup_result.removed_versions << " local file versions\n";
+        std::cout << Grusha << "removed " << cleanup_result.removed_objects << " unused objects\n";
+
+        if (cleanup_result.busy_objects != 0) {
+            std::cout << Grusha << "skipped " << cleanup_result.busy_objects << " busy objects\n";
+        }
+
+        log_info(
+            workspace.get_root(),
+            "add",
+            "removed " + std::to_string(cleanup_result.removed_versions) + " local file versions and " +
+                std::to_string(cleanup_result.removed_objects) + " unused objects"
+        );
     }
 }
 
@@ -511,7 +639,6 @@ void run_cleanup(uint64_t keep_versions, const std::vector<std::filesystem::path
     sync_with_master(false);
 
     pear::db::SqliteDatabase database(get_database_path(workspace));
-    auto& transport = pear::net::transport();
 
     const std::string master_address = database.getMasterAddress();
     const uint64_t device_id = database.getDeviceId();
@@ -575,78 +702,20 @@ void run_cleanup(uint64_t keep_versions, const std::vector<std::filesystem::path
     }
 
     const std::vector<std::string> cleanup_paths(selected_paths.begin(), selected_paths.end());
-    const uint64_t removed_versions = database.cleanupOldFileVersions(cleanup_paths, keep_versions);
+    const CleanupResult cleanup_result = cleanup_versions_and_unused_objects(workspace, keep_versions, cleanup_paths);
 
-    std::vector<std::string> object_hashes_to_delete;
+    std::cout << Grusha << "removed " << cleanup_result.removed_versions << " old file versions\n";
+    std::cout << Grusha << "removed " << cleanup_result.removed_objects << " unused objects\n";
 
-    if (std::filesystem::exists(workspace.get_obj_dir())) {
-        for (const auto& entry : std::filesystem::directory_iterator(workspace.get_obj_dir())) {
-            if (!entry.is_regular_file()) {
-                continue;
-            }
-
-            const std::string object_hash = entry.path().filename().string();
-
-            if (!database.isObjectReferenced(object_hash)) {
-                object_hashes_to_delete.push_back(object_hash);
-            }
-        }
-    }
-
-    std::vector<pear::net::WalEntryInfo> owner_delete_entries;
-
-    for (const auto& object_hash : object_hashes_to_delete) {
-        if (!database.hasObjectOwner(object_hash, device_id)) {
-            continue;
-        }
-
-        pear::net::WalEntryInfo entry {};
-        entry.op_type = pear::net::WalOpTypeInfo::kObjectOwnerDelete;
-        entry.object_owner.object_hash = object_hash;
-        entry.object_owner.owner_device_id = device_id;
-        owner_delete_entries.push_back(entry);
-    }
-
-    if (!owner_delete_entries.empty()) {
-        std::vector<uint64_t> assigned_seq_ids;
-
-        if (!transport.pushWAL(master_address, device_id, owner_delete_entries, assigned_seq_ids)) {
-            log_error(workspace.get_root(), "cleanup", "failed to unregister object owners");
-            throw std::runtime_error("failed to unregister object owners");
-        }
-
-        sync_with_master(false);
-    }
-
-    uint64_t removed_objects = 0;
-    uint64_t busy_objects = 0;
-
-    for (const auto& object_hash : object_hashes_to_delete) {
-        try {
-            const bool deleted = transport.deleteObject(local_address, object_hash, device_id);
-
-            if (deleted) {
-                ++removed_objects;
-            } else {
-                ++busy_objects;
-            }
-        } catch (const std::exception& error) {
-            std::cerr << "warning: failed to delete object " << object_hash << ": " << error.what() << '\n';
-            log_error(workspace.get_root(), "cleanup", "failed to delete object " + object_hash);
-        }
-    }
-
-    std::cout << Grusha << "removed " << removed_versions << " old file versions\n";
-    std::cout << Grusha << "removed " << removed_objects << " unused objects\n";
-
-    if (busy_objects != 0) {
-        std::cout << Grusha << "skipped " << busy_objects << " busy objects\n";
+    if (cleanup_result.busy_objects != 0) {
+        std::cout << Grusha << "skipped " << cleanup_result.busy_objects << " busy objects\n";
     }
 
     log_info(
         workspace.get_root(),
         "cleanup",
-        "removed " + std::to_string(removed_versions) + " old file versions and " + std::to_string(removed_objects) + " unused objects"
+        "removed " + std::to_string(cleanup_result.removed_versions) + " old file versions and " +
+            std::to_string(cleanup_result.removed_objects) + " unused objects"
     );
 }
 
@@ -717,18 +786,6 @@ void run_push() {
 
     for (const auto& file : staged_files) {
         try {
-            if (file.operation == "delete") {
-                pear::net::WalEntryInfo entry {};
-                entry.op_type = pear::net::WalOpTypeInfo::kFileDelete;
-                entry.file_delete.path = file.path;
-                entry.file_delete.version = 0;
-                entry.file_delete.owner_device_id = device_id;
-
-                wal_entries.push_back(entry);
-                pushed_paths.push_back(file.path);
-                continue;
-            }
-
             if (file.operation != "add" && file.operation != "update") {
                 throw std::runtime_error("unsupported staged operation: " + file.operation);
             }
