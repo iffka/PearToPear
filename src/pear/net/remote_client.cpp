@@ -19,6 +19,7 @@ void fillProtoWalEntry(WalEntry* proto_entry, const WalEntryInfo& entry) {
     proto_entry->set_seq_id(entry.seq_id);
     proto_entry->set_timestamp(entry.timestamp);
     proto_entry->set_op_type(static_cast<WalOpType>(entry.op_type));
+    proto_entry->set_entry_view_number(entry.entry_view_number);
 
     if (entry.op_type == WalOpTypeInfo::kFileUpdate) {
         auto* file_update = proto_entry->mutable_file_update();
@@ -65,6 +66,7 @@ WalEntryInfo parseProtoWalEntry(const WalEntry& proto_entry) {
     entry.seq_id = proto_entry.seq_id();
     entry.timestamp = proto_entry.timestamp();
     entry.op_type = static_cast<WalOpTypeInfo>(proto_entry.op_type());
+    entry.entry_view_number = proto_entry.entry_view_number();
 
     if (proto_entry.has_file_update()) {
         entry.file.path = proto_entry.file_update().path();
@@ -171,6 +173,93 @@ bool RemoteClient::PushWAL(
         return true;
     }
     return false;
+}
+
+bool RemoteClient::Prepare(
+    const std::string& replica_address,
+    uint64_t view_number,
+    uint64_t leader_device_id,
+    const std::vector<WalEntryInfo>& entries,
+    uint64_t commit_number,
+    uint64_t& out_last_seq_id
+) {
+    auto channel = grpc::CreateChannel(replica_address, grpc::InsecureChannelCredentials());
+    auto stub = Replica::NewStub(channel);
+
+    PrepareRequest req;
+    req.set_view_number(view_number);
+    req.set_leader_device_id(leader_device_id);
+    req.set_commit_number(commit_number);
+
+    for (const auto& entry : entries) {
+        auto* proto_entry = req.add_entries();
+        fillProtoWalEntry(proto_entry, entry);
+    }
+
+    PrepareResponse resp;
+    grpc::ClientContext ctx;
+    grpc::Status status = stub->Prepare(&ctx, req, &resp);
+
+    if (status.ok() && resp.success()) {
+        out_last_seq_id = resp.last_seq_id();
+        return true;
+    }
+
+    return false;
+}
+
+bool RemoteClient::Commit(
+    const std::string& replica_address,
+    uint64_t view_number,
+    uint64_t leader_device_id,
+    uint64_t commit_number
+) {
+    auto channel = grpc::CreateChannel(replica_address, grpc::InsecureChannelCredentials());
+    auto stub = Replica::NewStub(channel);
+
+    CommitRequest req;
+    req.set_view_number(view_number);
+    req.set_leader_device_id(leader_device_id);
+    req.set_commit_number(commit_number);
+
+    CommitResponse resp;
+    grpc::ClientContext ctx;
+    grpc::Status status = stub->Commit(&ctx, req, &resp);
+
+    return status.ok() && resp.success();
+}
+
+ReplicaStateInfo RemoteClient::GetReplicaState(const std::string& replica_address, uint64_t requester_device_id) {
+    auto channel = grpc::CreateChannel(replica_address, grpc::InsecureChannelCredentials());
+    auto stub = Replica::NewStub(channel);
+
+    ReplicaStateRequest req;
+    req.set_requester_device_id(requester_device_id);
+
+    ReplicaStateResponse resp;
+    grpc::ClientContext ctx;
+    grpc::Status status = stub->GetReplicaState(&ctx, req, &resp);
+
+    if (!status.ok() || !resp.success()) {
+        throw std::runtime_error("GetReplicaState failed: " + resp.error_message());
+    }
+
+    ReplicaStateInfo state;
+    state.device_id = resp.device_id();
+    state.address = resp.address();
+    state.vr_state.view_number = resp.view_number();
+    state.vr_state.commit_number = resp.commit_number();
+    state.vr_state.last_normal_view = resp.last_normal_view();
+
+    uint64_t status_value = resp.replica_status();
+    if (status_value > 2) {
+        status_value = 0;
+    }
+
+    state.vr_state.status = static_cast<ReplicaStatusInfo>(status_value);
+    state.last_seq_id = resp.last_seq_id();
+
+    return state;
 }
 
 void RemoteClient::DownloadFile(const std::string& vu_address, const std::string& object_hash, uint64_t requester_device_id, const std::string& destination_path) {

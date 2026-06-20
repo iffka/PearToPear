@@ -16,6 +16,9 @@ public:
     virtual uint64_t registerDevice(const std::string& master_ref, const std::string& self_ref) = 0;
     virtual std::vector<WalEntryInfo> updateDB(const std::string& master_ref, uint64_t last_seq_id, uint64_t device_id) = 0;
     virtual bool pushWAL(const std::string& master_ref, uint64_t device_id, const std::vector<WalEntryInfo>& entries, std::vector<uint64_t>& out_assigned_seq_ids) = 0;
+    virtual bool prepareReplica( const std::string& replica_ref, uint64_t view_number, uint64_t leader_device_id, const std::vector<WalEntryInfo>& entries, uint64_t commit_number, uint64_t& out_last_seq_id) = 0;
+    virtual bool commitReplica( const std::string& replica_ref, uint64_t view_number, uint64_t leader_device_id, uint64_t commit_number) = 0;
+    virtual ReplicaStateInfo getReplicaState(const std::string& replica_ref, uint64_t requester_device_id) = 0;
     virtual void downloadFile(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, const std::string& destination_path) = 0;
     virtual uint64_t getObjectSize(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id) = 0;
     virtual void downloadFileRange(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, uint64_t offset, uint64_t size, const std::string& destination_path) = 0;

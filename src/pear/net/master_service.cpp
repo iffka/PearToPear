@@ -11,6 +11,7 @@ void fillProtoWalEntry(WalEntry* proto_entry, const WalEntryInfo& entry) {
     proto_entry->set_seq_id(entry.seq_id);
     proto_entry->set_timestamp(entry.timestamp);
     proto_entry->set_op_type(static_cast<WalOpType>(entry.op_type));
+    proto_entry->set_entry_view_number(entry.entry_view_number);
 
     if (entry.op_type == WalOpTypeInfo::kFileUpdate) {
         auto* file_update = proto_entry->mutable_file_update();
@@ -57,6 +58,7 @@ WalEntryInfo parseProtoWalEntry(const WalEntry& proto_entry) {
     entry.seq_id = proto_entry.seq_id();
     entry.timestamp = proto_entry.timestamp();
     entry.op_type = static_cast<WalOpTypeInfo>(proto_entry.op_type());
+    entry.entry_view_number = proto_entry.entry_view_number();
 
     if (proto_entry.has_file_update()) {
         entry.file.path = proto_entry.file_update().path();

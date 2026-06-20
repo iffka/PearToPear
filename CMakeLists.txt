@@ -120,6 +120,7 @@ target_link_libraries(pear_db PUBLIC
 add_library(pear_net
     src/pear/net/node.cpp
     src/pear/net/master_service.cpp
+    src/pear/net/replica_service.cpp
     src/pear/net/remote_client.cpp
     src/pear/net/grpc_direct_transport.cpp
     src/pear/net/transport_registry.cpp
@@ -144,6 +145,7 @@ target_link_libraries(pear_net PUBLIC
 
 add_library(pear_demon
     src/pear/demon/demon.cpp
+    src/pear/demon/gu_transition.cpp
 )
 
 target_include_directories(pear_demon PUBLIC

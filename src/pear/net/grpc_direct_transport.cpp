@@ -16,6 +16,18 @@ bool GrpcDirectTransport::pushWAL(const std::string& master_ref, uint64_t device
     return RemoteClient::PushWAL(master_ref, device_id, entries, out_assigned_seq_ids);
 }
 
+bool GrpcDirectTransport::prepareReplica( const std::string& replica_ref, uint64_t view_number, uint64_t leader_device_id, const std::vector<WalEntryInfo>& entries, uint64_t commit_number, uint64_t& out_last_seq_id) {
+    return RemoteClient::Prepare(replica_ref, view_number, leader_device_id, entries, commit_number, out_last_seq_id);
+}
+
+bool GrpcDirectTransport::commitReplica( const std::string& replica_ref, uint64_t view_number, uint64_t leader_device_id, uint64_t commit_number) {
+    return RemoteClient::Commit(replica_ref, view_number, leader_device_id, commit_number);
+}
+
+ReplicaStateInfo GrpcDirectTransport::getReplicaState(const std::string& replica_ref, uint64_t requester_device_id) {
+    return RemoteClient::GetReplicaState(replica_ref, requester_device_id);
+}
+
 void GrpcDirectTransport::downloadFile(const std::string& owner_ref, const std::string& object_hash, uint64_t requester_device_id, const std::string& destination_path) {
     RemoteClient::DownloadFile(owner_ref, object_hash, requester_device_id, destination_path);
 }

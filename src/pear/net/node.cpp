@@ -2,6 +2,7 @@
 
 #include <pear/net/master_service.hpp>
 #include <pear/net/storage_service.hpp>
+#include <pear/net/replica_service.hpp>
 
 #include <utility>
 
@@ -45,6 +46,11 @@ void Node::runServerThread(const std::string& address, bool storage_only) {
     if (!storage_only && is_master_) {
         master_service_ = std::make_unique<MasterServiceImpl>(db_);
         builder.RegisterService(master_service_.get());
+    }
+
+    if (!storage_only) {
+        replica_service_ = std::make_unique<ReplicaServiceImpl>(db_);
+        builder.RegisterService(replica_service_.get());
     }
 
     storage_service_ = std::make_unique<StorageServiceImpl>(workspace_);
